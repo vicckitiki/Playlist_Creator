@@ -166,36 +166,65 @@
             if (code) fetchToken(code);
             else if (accessToken) iniciarApp();
         };
-
-        // --- SISTEMA DE API E LOGS ---
+        
+                // --- SISTEMA DE API E LOGS ---
         async function apiCall(endpoint, method = 'GET', body = null) {
             const url = `https://api.spotify.com/v1${endpoint}`;
-            
+        
             const options = {
                 method: method,
-                headers: { 
-                    'Authorization': `Bearer ${accessToken}`, 
-                    'Content-Type': 'application/json' 
+                headers: {
+                    'Authorization': `Bearer ${accessToken}`,
+                    'Content-Type': 'application/json'
                 }
             };
-            if (body) options.body = JSON.stringify(body);
-            
+        
+            if (body) {
+                options.body = JSON.stringify(body);
+            }
+        
             try {
                 const response = await fetch(url, options);
-                
-                if (response.status === 401) { 
-                    logout(); 
-                    return null; 
-                }
-                if (response.status === 429) {
-                    console.warn("Spotify Rate Limit atingido! Esperando 3 segundos...");
-                    await sleep(3000);
-                    return apiCall(endpoint, method, body); // Tenta novamente
-                }
-                
+        
                 const data = await response.json().catch(() => null);
-                return data; 
-                
+        
+                console.log("Spotify API:", {
+                    endpoint,
+                    method,
+                    status: response.status,
+                    response: data
+                });
+        
+                if (response.status === 401) {
+                    console.error("Token inválido ou expirado.");
+                    logout();
+                    return null;
+                }
+        
+                if (response.status === 403) {
+                    console.error("SPOTIFY 403:", data);
+                    setStatus(
+                        `Spotify recusou a operação (403): ${
+                            data?.error?.message || "Acesso proibido"
+                        }`,
+                        true
+                    );
+                    return null;
+                }
+        
+                if (response.status === 429) {
+                    console.warn("Spotify Rate Limit atingido!");
+                    await sleep(3000);
+                    return apiCall(endpoint, method, body);
+                }
+        
+                if (!response.ok) {
+                    console.error("Erro Spotify:", response.status, data);
+                    return null;
+                }
+        
+                return data;
+        
             } catch (error) {
                 console.error("FALHA NA REQUISIÇÃO:", error);
                 return null;
@@ -397,7 +426,7 @@
             if (currentMode === 'new') {
                 setStatus("Criando a nova playlist no seu perfil...");
                 const plName = document.getElementById('playlist-name').value || 'Gerador Indie Rock';
-                const resPl = await apiCall(`/users/${userId}/playlists`, 'POST', {
+                const resPl = await apiCall(`/me/playlists`, 'POST', {
                     name: plName,
                     description: "Criada via Script - Extração Profunda de Discografias.",
                     public: false
@@ -421,6 +450,14 @@
             document.getElementById('status-msg').classList.replace('text-zinc-400', 'text-green-500');
             setStatus("Sucesso absoluto! A playlist gigante está pronta na sua conta.");
             setTimeout(() => { window.location.reload(); }, 4000);
+        }
+        async function testeCriacao() {
+            const res = await apiCall('/me/playlists', 'POST', {
+                name: 'TESTE API',
+                public: false
+            });
+        
+            console.log("RESULTADO:", res);
         }
     </script>
 </body>
