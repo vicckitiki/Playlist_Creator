@@ -3,660 +3,366 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Indie Generator - Spotify Tool</title>
+    <title>Gerador Indie Rock Massivo - Spotify</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <script>
-        tailwind.config = {
-            theme: {
-                extend: {
-                    fontFamily: { sans: ['Inter', 'sans-serif'] },
-                    colors: {
-                        spotify: {
-                            green: '#1DB954',
-                            greenHover: '#1ed760',
-                            black: '#121212',
-                            dark: '#181818',
-                            gray: '#282828',
-                            lightGray: '#b3b3b3'
-                        }
-                    }
-                }
-            }
-        }
-    </script>
     <style>
-        /* Custom Scrollbar for a premium look */
-        ::-webkit-scrollbar { width: 8px; }
-        ::-webkit-scrollbar-track { background: #121212; }
-        ::-webkit-scrollbar-thumb { background: #555; border-radius: 4px; }
-        ::-webkit-scrollbar-thumb:hover { background: #777; }
-        
-        /* Audio Player Styling override */
-        audio { height: 35px; outline: none; border-radius: 20px; }
-        audio::-webkit-media-controls-panel { background-color: #282828; color: #fff; }
-        audio::-webkit-media-controls-play-button,
-        audio::-webkit-media-controls-mute-button { filter: invert(1); }
-        audio::-webkit-media-controls-current-time-display,
-        audio::-webkit-media-controls-time-remaining-display { color: #fff; }
-        
-        /* Fade in animation */
-        .fade-in { animation: fadeIn 0.3s ease-in-out; }
-        @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(10px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-        
-        /* Loading Spinner */
-        .spinner {
-            border: 4px solid rgba(255, 255, 255, 0.1);
-            width: 36px; height: 36px; border-radius: 50%;
-            border-left-color: #1DB954;
-            animation: spin 1s linear infinite;
-        }
-        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .tab-active { border-bottom: 2px solid #22c55e; color: white; }
+        .tab-inactive { color: #a1a1aa; }
     </style>
 </head>
-<body class="bg-spotify-black text-white min-h-screen font-sans antialiased overflow-x-hidden selection:bg-spotify-green selection:text-white">
+<body class="bg-zinc-900 text-white min-h-screen font-sans">
 
-    <!-- Toast Notification Container -->
-    <div id="toast-container" class="fixed top-5 right-5 z-50 flex flex-col gap-2"></div>
-
-    <!-- Login Screen -->
-    <div id="login-screen" class="min-h-screen flex flex-col items-center justify-center p-6 fade-in hidden">
-        <div class="bg-spotify-dark p-10 rounded-2xl shadow-2xl max-w-md w-full text-center border border-spotify-gray">
-            <svg class="w-20 h-20 mx-auto text-spotify-green mb-6" fill="currentColor" viewBox="0 0 24 24"><path d="M12 0C5.4 0 0 5.4 0 12s5.4 12 12 12 12-5.4 12-12S18.66 0 12 0zm5.521 17.34c-.24.359-.66.48-1.021.24-2.82-1.74-6.36-2.101-10.561-1.141-.418.122-.779-.179-.899-.539-.12-.421.18-.78.54-.9 4.56-1.021 8.52-.6 11.64 1.32.42.18.479.659.301 1.02zm1.44-3.3c-.301.42-.841.6-1.262.3-3.239-1.98-8.159-2.58-11.939-1.38-.479.12-1.02-.12-1.14-.6-.12-.48.12-1.021.6-1.141C9.6 9.9 15 10.561 18.72 12.84c.361.181.54.78.241 1.2zm.12-3.36C15.24 8.4 8.82 8.16 5.16 9.301c-.6.179-1.2-.181-1.38-.721-.18-.6.18-1.2.72-1.38 4.26-1.26 11.28-1.02 15.721 1.621.539.3.719 1.02.419 1.56-.299.421-1.02.599-1.559.3z"/></svg>
-            <h1 class="text-3xl font-bold mb-4">Gerador de Playlists</h1>
-            <p class="text-spotify-lightGray mb-8">Conecte-se com o Spotify para gerar horas de música indie automaticamente baseadas nas suas preferências.</p>
-            <button onclick="loginWithSpotify()" class="bg-spotify-green hover:bg-spotify-greenHover text-black font-bold py-3 px-8 rounded-full transition-colors w-full text-lg shadow-lg">
-                Entrar com Spotify
-            </button>
-        </div>
+    <!-- Tela de Login -->
+    <div id="login-section" class="flex flex-col items-center justify-center min-h-screen p-4 space-y-6">
+        <h1 class="text-4xl font-bold text-center">Gerador de Playlist Massiva</h1>
+        <p class="text-zinc-400 text-center max-w-md">Crie ou incremente playlists gigantescas no seu Spotify. Ideal para discografias Indie Rock.</p>
+        <button onclick="loginComPKCE()" class="bg-green-500 hover:bg-green-400 text-black font-bold py-3 px-8 rounded-full transition shadow-lg">
+            Conectar com o Spotify
+        </button>
     </div>
 
-    <!-- Main App Screen -->
-    <div id="main-app" class="hidden min-h-screen flex flex-col p-6 max-w-5xl mx-auto fade-in">
-        <!-- Header -->
-        <header class="flex justify-between items-center mb-10 pb-6 border-b border-spotify-gray">
-            <div class="flex items-center gap-4">
-                <svg class="w-10 h-10 text-spotify-green" fill="currentColor" viewBox="0 0 24 24"><path d="M12 0C5.4 0 0 5.4 0 12s5.4 12 12 12 12-5.4 12-12S18.66 0 12 0zm5.521 17.34c-.24.359-.66.48-1.021.24-2.82-1.74-6.36-2.101-10.561-1.141-.418.122-.779-.179-.899-.539-.12-.421.18-.78.54-.9 4.56-1.021 8.52-.6 11.64 1.32.42.18.479.659.301 1.02zm1.44-3.3c-.301.42-.841.6-1.262.3-3.239-1.98-8.159-2.58-11.939-1.38-.479.12-1.02-.12-1.14-.6-.12-.48.12-1.021.6-1.141C9.6 9.9 15 10.561 18.72 12.84c.361.181.54.78.241 1.2zm.12-3.36C15.24 8.4 8.82 8.16 5.16 9.301c-.6.179-1.2-.181-1.38-.721-.18-.6.18-1.2.72-1.38 4.26-1.26 11.28-1.02 15.721 1.621.539.3.719 1.02.419 1.56-.299.421-1.02.599-1.559.3z"/></svg>
-                <h1 class="text-2xl font-bold tracking-tight">Painel de Geração</h1>
-            </div>
-            <div class="flex items-center gap-4">
-                <span id="user-greeting" class="text-spotify-lightGray font-medium"></span>
-                <button onclick="logout()" class="text-sm px-4 py-2 border border-spotify-gray rounded-full hover:border-white transition-colors">Sair</button>
-            </div>
-        </header>
-
-        <!-- Controls -->
-        <div class="grid md:grid-cols-2 gap-8">
-            <!-- Mode Selection -->
-            <div class="col-span-1 md:col-span-2 flex gap-4 bg-spotify-dark p-2 rounded-xl w-max">
-                <button id="btn-mode-create" onclick="setMode('create')" class="px-6 py-2 rounded-lg bg-spotify-gray text-white font-semibold transition-all">Criar Nova</button>
-                <button id="btn-mode-increment" onclick="setMode('increment')" class="px-6 py-2 rounded-lg text-spotify-lightGray hover:text-white font-semibold transition-all">Incrementar Existente</button>
-            </div>
-
-            <!-- Configuration Form -->
-            <div class="bg-spotify-dark p-6 rounded-2xl border border-spotify-gray shadow-lg col-span-1 md:col-span-2">
-                <form id="generator-form" class="space-y-6" onsubmit="handleGenerate(event)">
-                    <div id="create-fields" class="space-y-6 block">
-                        <div>
-                            <label class="block text-sm font-semibold mb-2">Nome da Nova Playlist</label>
-                            <input type="text" id="playlist-name" placeholder="Ex: Indie Nights (300h)" class="w-full bg-[#2a2a2a] text-white rounded-lg p-3 outline-none focus:ring-2 focus:ring-spotify-green transition-all" required>
-                        </div>
-                    </div>
-
-                    <div id="increment-fields" class="space-y-6 hidden">
-                        <div>
-                            <label class="block text-sm font-semibold mb-2">Selecione a Playlist Destino</label>
-                            <select id="playlist-select" class="w-full bg-[#2a2a2a] text-white rounded-lg p-3 outline-none focus:ring-2 focus:ring-spotify-green transition-all appearance-none cursor-pointer">
-                                <option value="" disabled selected>Carregando playlists...</option>
-                            </select>
-                        </div>
-                    </div>
-
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <div>
-                            <label class="block text-sm font-semibold mb-2">Gênero Musical / Estilo</label>
-                            <input type="text" id="genre-input" placeholder="Ex: indie rock, post-punk, garage rock" class="w-full bg-[#2a2a2a] text-white rounded-lg p-3 outline-none focus:ring-2 focus:ring-spotify-green transition-all" required>
-                            <p class="text-xs text-spotify-lightGray mt-2">Dica: Use vírgulas ou palavras-chave exatas (ex: "arctic monkeys").</p>
-                        </div>
-                        <div>
-                            <label class="block text-sm font-semibold mb-2">Quantidade Máxima de Músicas a Buscar</label>
-                            <input type="number" id="max-tracks" min="10" max="1000" placeholder="Máx: 1000 por busca" class="w-full bg-[#2a2a2a] text-white rounded-lg p-3 outline-none focus:ring-2 focus:ring-spotify-green transition-all" required>
-                            <p class="text-xs text-spotify-lightGray mt-2">Devido a limites da API do Spotify, busque até 1000 por vez.</p>
-                        </div>
-                    </div>
-
-                    <div class="pt-4 flex items-center justify-between">
-                        <button type="submit" id="btn-generate" class="bg-spotify-green hover:bg-spotify-greenHover text-black font-bold py-3 px-8 rounded-full transition-colors flex items-center gap-2">
-                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
-                            Buscar e Preparar Músicas
-                        </button>
-                        <div id="loading-indicator" class="hidden flex items-center gap-3 text-spotify-lightGray">
-                            <div class="spinner"></div>
-                            <span id="loading-text">Varrendo o Spotify...</span>
-                        </div>
-                    </div>
-                </form>
-            </div>
+    <!-- Tela Principal da Aplicação -->
+    <div id="app-section" class="hidden max-w-4xl mx-auto p-6 pt-12">
+        <div class="flex justify-between items-center mb-8">
+            <h2 class="text-3xl font-bold">Painel de Geração</h2>
+            <button onclick="logout()" class="text-sm text-zinc-400 hover:text-white border border-zinc-600 px-4 py-2 rounded-full">Sair</button>
         </div>
-    </div>
 
-    <!-- Preview Screen -->
-    <div id="preview-screen" class="hidden min-h-screen flex flex-col p-6 max-w-6xl mx-auto fade-in">
-        <header class="flex justify-between items-center mb-8">
-            <h2 class="text-3xl font-bold">Pré-visualização da Playlist</h2>
-            <button onclick="cancelPreview()" class="text-spotify-lightGray hover:text-white flex items-center gap-2 transition-colors">
-                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path></svg>
-                Voltar e Ajustar
+        <!-- Abas -->
+        <div class="flex mb-6 border-b border-zinc-700">
+            <button id="tab-new" onclick="switchTab('new')" class="pb-2 px-4 tab-active font-semibold">Criar Nova Playlist</button>
+            <button id="tab-inc" onclick="switchTab('inc')" class="pb-2 px-4 tab-inactive font-semibold hover:text-white transition">Incrementar Existente</button>
+        </div>
+
+        <!-- Formulário -->
+        <div id="form-container" class="bg-zinc-800 p-6 rounded-xl shadow-lg space-y-5">
+            
+            <div id="new-playlist-fields">
+                <label class="block text-sm text-zinc-400 mb-1">Nome da Nova Playlist</label>
+                <input type="text" id="playlist-name" class="w-full bg-zinc-700 rounded p-3 text-white focus:outline-none focus:ring-2 focus:ring-green-500" placeholder="Ex: Indie Rock 300 Horas">
+            </div>
+
+            <div id="inc-playlist-fields" class="hidden">
+                <label class="block text-sm text-zinc-400 mb-1">Selecione sua Playlist</label>
+                <select id="playlist-select" class="w-full bg-zinc-700 rounded p-3 text-white focus:outline-none focus:ring-2 focus:ring-green-500">
+                    <option value="">Carregando suas playlists...</option>
+                </select>
+            </div>
+
+            <div>
+                <label class="block text-sm text-zinc-400 mb-1">Gênero / Estilo (Semente)</label>
+                <input type="text" id="genre-seed" class="w-full bg-zinc-700 rounded p-3 text-white focus:outline-none focus:ring-2 focus:ring-green-500" value="indie rock, arctic monkeys">
+            </div>
+
+            <div>
+                <label class="block text-sm text-zinc-400 mb-1">Quantidade de Músicas a Buscar</label>
+                <input type="number" id="track-limit" class="w-full bg-zinc-700 rounded p-3 text-white focus:outline-none focus:ring-2 focus:ring-green-500" value="1000" max="5000">
+            </div>
+
+            <button onclick="gerarPreview()" class="w-full bg-green-500 hover:bg-green-400 text-black font-bold py-4 rounded-full mt-2 transition text-lg">
+                Varrer Músicas e Gerar Preview
             </button>
-        </header>
+        </div>
 
-        <div class="grid lg:grid-cols-3 gap-8">
-            <!-- Sidebar: Stats -->
-            <div class="lg:col-span-1 space-y-6">
-                <div class="bg-spotify-dark p-6 rounded-2xl border border-spotify-gray">
-                    <h3 class="text-xl font-bold mb-4">Resumo</h3>
-                    <div class="flex justify-between items-center mb-2">
-                        <span class="text-spotify-lightGray">Total Encontrado:</span>
-                        <span id="stat-total" class="font-bold text-spotify-green text-xl">0</span>
-                    </div>
-                    <div id="stat-duplicates-container" class="flex justify-between items-center mb-2 hidden text-orange-400">
-                        <span>Ignoradas (Já existiam):</span>
-                        <span id="stat-duplicates" class="font-bold">0</span>
-                    </div>
-                    <div class="flex justify-between items-center mb-6">
-                        <span class="text-spotify-lightGray">Tempo Aprox.:</span>
-                        <span id="stat-time" class="font-bold">0 hrs</span>
-                    </div>
-
-                    <button onclick="confirmAndInject()" id="btn-confirm" class="w-full bg-spotify-green hover:bg-spotify-greenHover text-black font-bold py-3 px-4 rounded-full transition-colors flex justify-center items-center gap-2 shadow-lg">
-                        Confirmar e Adicionar ao Spotify
-                    </button>
-                    
-                    <div id="injecting-indicator" class="hidden mt-4 flex flex-col items-center gap-2 text-spotify-lightGray">
-                        <div class="spinner"></div>
-                        <span class="text-sm">Injetando músicas (isso pode levar um minuto)...</span>
-                    </div>
-                </div>
-
-                <div class="bg-spotify-dark p-6 rounded-2xl border border-spotify-gray max-h-96 overflow-y-auto">
-                    <h3 class="text-xl font-bold mb-4">Artistas Varridos</h3>
-                    <ul id="artist-list" class="space-y-3">
-                        <!-- Rendered via JS -->
-                    </ul>
-                </div>
+        <!-- Tela de Preview -->
+        <div id="preview-section" class="hidden bg-zinc-800 p-6 rounded-xl shadow-lg mt-6">
+            <h3 class="text-xl font-bold mb-2">Preview da Geração</h3>
+            <p id="preview-stats" class="text-zinc-400 mb-4">Analisando faixas...</p>
+            
+            <div class="h-64 overflow-y-auto bg-zinc-900 rounded p-4 mb-4 border border-zinc-700" id="preview-list">
+                <!-- Lista de musicas entra aqui via JS -->
             </div>
 
-            <!-- Main Content: Tracks -->
-            <div class="lg:col-span-2 bg-spotify-dark p-6 rounded-2xl border border-spotify-gray flex flex-col h-[75vh]">
-                <h3 class="text-xl font-bold mb-4 border-b border-spotify-gray pb-4">Faixas Selecionadas</h3>
-                <div class="overflow-y-auto flex-1 pr-2 space-y-2" id="track-list">
-                    <!-- Rendered via JS -->
-                </div>
+            <div class="flex space-x-4">
+                <button onclick="confirmarEInjetar()" class="flex-1 bg-green-500 hover:bg-green-400 text-black font-bold py-3 rounded-full transition">
+                    Confirmar e Salvar no Spotify
+                </button>
+                <button onclick="cancelarPreview()" class="bg-zinc-700 hover:bg-zinc-600 text-white font-bold py-3 px-6 rounded-full transition">
+                    Cancelar
+                </button>
             </div>
         </div>
+
+        <div id="status-msg" class="mt-4 text-center text-sm font-semibold hidden"></div>
     </div>
 
     <script>
-        /** =========================================================================
-         *  CONFIGURAÇÕES OBRIGATÓRIAS DO SPOTIFY API
-         *  Substitua pelos valores do seu Dashboard do Spotify.
-         * ========================================================================= */
-        const SPOTIFY_CLIENT_ID = '5682ad86f0e645c183a9fdd721d6768d'; // EX: 'a1b2c3d4e5...'
-        const REDIRECT_URI = window.location.href.split('#')[0].split('?')[0]; // Pega a URL atual dinamicamente
+        // CONFIGURAÇÕES DO APLICATIVO
+        const CLIENT_ID = '5682ad86f0e645c183a9fdd721d6768d';
+        const REDIRECT_URI = 'https://vicckitiki.github.io/Playlist_Creator/';
         
-        // Scope de permissões requeridas (criar, ler e modificar playlists)
-        const SCOPES = [
-            'playlist-modify-public',
-            'playlist-modify-private',
-            'playlist-read-private',
-            'playlist-read-collaborative'
-        ].join(' ');
+        let accessToken = localStorage.getItem('access_token');
+        let userId = '';
+        let currentMode = 'new'; // 'new' ou 'inc'
+        let tracksToInject = []; // URIs das músicas após a varredura
 
-        // Estado da Aplicação
-        let appState = {
-            token: null,
-            userId: null,
-            mode: 'create', // 'create' ou 'increment'
-            playlists: [],
-            scrapedTracks: [],
-            finalUrisToInject: []
-        };
-
-        /** =========================================================================
-         *  UTILITÁRIOS DE UI (Toasts, Modals)
-         * ========================================================================= */
-        function showToast(message, type = 'info') {
-            const container = document.getElementById('toast-container');
-            const toast = document.createElement('div');
-            const colors = type === 'error' ? 'bg-red-500' : (type === 'success' ? 'bg-spotify-green text-black' : 'bg-spotify-gray');
-            toast.className = `px-6 py-3 rounded-lg shadow-xl font-medium text-sm transition-all duration-300 transform translate-x-full ${colors}`;
-            toast.innerText = message;
-            
-            container.appendChild(toast);
-            
-            // Animate in
-            setTimeout(() => { toast.classList.remove('translate-x-full'); }, 10);
-            // Remove after 3s
-            setTimeout(() => {
-                toast.classList.add('translate-x-full');
-                setTimeout(() => toast.remove(), 300);
-            }, 3000);
+        // --- SISTEMA DE LOGIN PKCE ---
+        function generateRandomString(length) {
+            const possible = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+            const values = crypto.getRandomValues(new Uint8Array(length));
+            return values.reduce((acc, x) => acc + possible[x % possible.length], "");
         }
 
-        /** =========================================================================
-         *  AUTENTICAÇÃO & FLUXO OAUTH 2.0
-         * ========================================================================= */
-        function loginWithSpotify() {
-            if (SPOTIFY_CLIENT_ID === 'CLIENT_ID') {
-                showToast("Erro: Configure o SPOTIFY_CLIENT_ID no código fonte primeiro!", "error");
-                return;
+        async function generateCodeChallenge(codeVerifier) {
+            const data = new TextEncoder().encode(codeVerifier);
+            const digest = await window.crypto.subtle.digest('SHA-256', data);
+            return btoa(String.fromCharCode.apply(null, [...new Uint8Array(digest)])).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+        }
+
+        async function loginComPKCE() {
+            const codeVerifier = generateRandomString(64);
+            window.localStorage.setItem('code_verifier', codeVerifier);
+            const codeChallenge = await generateCodeChallenge(codeVerifier);
+
+            const params = new URLSearchParams({
+                client_id: CLIENT_ID,
+                response_type: 'code',
+                redirect_uri: REDIRECT_URI,
+                scope: 'playlist-modify-public playlist-modify-private playlist-read-private user-read-private',
+                code_challenge_method: 'S256',
+                code_challenge: codeChallenge
+            });
+
+            window.location.href = `https://accounts.spotify.com/authorize?${params.toString()}`;
+        }
+
+        async function fetchToken(code) {
+            const codeVerifier = localStorage.getItem('code_verifier');
+            const response = await fetch('https://accounts.spotify.com/api/token', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: new URLSearchParams({
+                    client_id: CLIENT_ID,
+                    grant_type: 'authorization_code',
+                    code: code,
+                    redirect_uri: REDIRECT_URI,
+                    code_verifier: codeVerifier
+                })
+            });
+
+            const data = await response.json();
+            if (data.access_token) {
+                localStorage.setItem('access_token', data.access_token);
+                accessToken = data.access_token;
+                window.history.replaceState({}, document.title, window.location.pathname);
+                iniciarApp();
             }
-            const authUrl = `https://accounts.spotify.com/authorize?client_id=${SPOTIFY_CLIENT_ID}&response_type=token&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&scope=${encodeURIComponent(SCOPES)}&show_dialog=true`;
-            window.location.href = authUrl;
         }
 
         function logout() {
-            window.location.hash = '';
-            appState.token = null;
-            init();
+            localStorage.removeItem('access_token');
+            window.location.reload();
         }
 
-        // Verifica a URL por Token do Spotify
-        function checkAuth() {
-            const hash = window.location.hash.substring(1);
-            if (hash) {
-                const params = new URLSearchParams(hash);
-                if (params.has('access_token')) {
-                    appState.token = params.get('access_token');
-                    // Limpa a URL para segurança e estética
-                    window.history.replaceState(null, null, ' ');
-                    return true;
-                }
+        // --- INICIALIZAÇÃO E UI ---
+        window.onload = () => {
+            const urlParams = new URLSearchParams(window.location.search);
+            const code = urlParams.get('code');
+
+            if (code) {
+                fetchToken(code);
+            } else if (accessToken) {
+                iniciarApp();
             }
-            return false;
-        }
+        };
 
-        /** =========================================================================
-         *  CHAMADAS A API DO SPOTIFY
-         * ========================================================================= */
-        async function spotifyAPI(endpoint, method = 'GET', body = null) {
+        async function apiCall(endpoint, method = 'GET', body = null) {
             const options = {
-                method,
-                headers: {
-                    'Authorization': `Bearer ${appState.token}`,
-                    'Content-Type': 'application/json'
-                }
+                method: method,
+                headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json' }
             };
             if (body) options.body = JSON.stringify(body);
+            
+            const response = await fetch(`https://api.spotify.com/v1${endpoint}`, options);
+            if (response.status === 401) { logout(); return; } // Token expirado
+            if (method === 'GET' || response.status === 201 || response.status === 200) {
+                return response.json().catch(() => ({}));
+            }
+            return null;
+        }
 
-            try {
-                const response = await fetch(`https://api.spotify.com/v1${endpoint}`, options);
-                if (response.status === 401) {
-                    showToast('Sessão expirada. Faça login novamente.', 'error');
-                    logout();
-                    throw new Error("Unauthorized");
-                }
-                if (response.status === 204) return null; // Respostas vazias (ex: deletar/adicionar sem retorno)
-                
-                const data = await response.json();
-                if (!response.ok) throw new Error(data.error?.message || "API Error");
-                
-                return data;
-            } catch (error) {
-                console.error("Spotify API Error:", error);
-                throw error;
+        async function iniciarApp() {
+            document.getElementById('login-section').classList.add('hidden');
+            document.getElementById('app-section').classList.remove('hidden');
+            
+            // Pegar ID do usuário
+            const userData = await apiCall('/me');
+            if (userData) userId = userData.id;
+
+            carregarPlaylists();
+        }
+
+        function switchTab(tab) {
+            currentMode = tab;
+            const btnNew = document.getElementById('tab-new');
+            const btnInc = document.getElementById('tab-inc');
+            const fieldsNew = document.getElementById('new-playlist-fields');
+            const fieldsInc = document.getElementById('inc-playlist-fields');
+
+            if (tab === 'new') {
+                btnNew.className = "pb-2 px-4 tab-active font-semibold";
+                btnInc.className = "pb-2 px-4 tab-inactive font-semibold hover:text-white transition";
+                fieldsNew.classList.remove('hidden');
+                fieldsInc.classList.add('hidden');
+            } else {
+                btnInc.className = "pb-2 px-4 tab-active font-semibold";
+                btnNew.className = "pb-2 px-4 tab-inactive font-semibold hover:text-white transition";
+                fieldsInc.classList.remove('hidden');
+                fieldsNew.classList.add('hidden');
             }
         }
 
-        async function fetchUserProfile() {
-            const data = await spotifyAPI('/me');
-            appState.userId = data.id;
-            document.getElementById('user-greeting').innerText = `Olá, ${data.display_name || data.id}`;
-        }
-
-        async function fetchUserPlaylists() {
-            let allPlaylists = [];
-            let nextUrl = '/me/playlists?limit=50';
-            
-            // Loop para buscar caso o usuário tenha muitas playlists
-            while (nextUrl) {
-                const endpoint = nextUrl.replace('https://api.spotify.com/v1', '');
-                const data = await spotifyAPI(endpoint);
-                allPlaylists = allPlaylists.concat(data.items);
-                nextUrl = data.next;
-            }
-            
-            // Apenas playlists que o usuário pode editar (dele próprio ou colaborativas)
-            appState.playlists = allPlaylists.filter(p => p.owner.id === appState.userId || p.collaborative);
-            populatePlaylistSelect();
-        }
-
-        async function fetchPlaylistTracks(playlistId) {
-            let uris = new Set();
-            let nextUrl = `/playlists/${playlistId}/tracks?fields=items(track(uri)),next&limit=100`;
-            
-            while (nextUrl) {
-                const endpoint = nextUrl.replace('https://api.spotify.com/v1', '');
-                const data = await spotifyAPI(endpoint);
-                data.items.forEach(item => {
-                    if (item.track && item.track.uri) uris.add(item.track.uri);
-                });
-                nextUrl = data.next;
-            }
-            return uris;
-        }
-
-        /** =========================================================================
-         *  LOGICA PRINCIPAL DE BUSCA E SCRAPING
-         * ========================================================================= */
-        async function handleGenerate(e) {
-            e.preventDefault();
-            
-            const genre = document.getElementById('genre-input').value.trim();
-            const maxTracks = parseInt(document.getElementById('max-tracks').value) || 100;
-            
-            if (appState.mode === 'create' && !document.getElementById('playlist-name').value.trim()) {
-                showToast("Dê um nome para a playlist", "error");
-                return;
-            }
-            if (appState.mode === 'increment' && !document.getElementById('playlist-select').value) {
-                showToast("Selecione uma playlist para incrementar", "error");
-                return;
-            }
-
-            toggleLoadingState(true);
-            
-            try {
-                let existingUris = new Set();
-                if (appState.mode === 'increment') {
-                    document.getElementById('loading-text').innerText = "Analisando músicas existentes...";
-                    const playlistId = document.getElementById('playlist-select').value;
-                    existingUris = await fetchPlaylistTracks(playlistId);
-                }
-
-                document.getElementById('loading-text').innerText = "Buscando novas faixas (pode demorar)...";
-                
-                // Buscar faixas (Paginação da busca do Spotify)
-                let foundTracks = [];
-                let offset = 0;
-                let limit = 50; // Limite maximo por chamada de busca
-                let query = `genre:"${genre}"`;
-                // Se a pessoa digitou apenas o nome da banda, ajusta a query
-                if (!genre.toLowerCase().includes('genre:')) {
-                   // Permite mesclar, se for mais de uma palavra pode ser keyword livre também.
-                   query = `genre:"${genre}" OR "${genre}"`;
-                }
-                
-                // Spotify search cap is 1000 items usually via offset
-                const maxAllowedSearch = Math.min(maxTracks, 1000); 
-
-                while (foundTracks.length < maxAllowedSearch) {
-                    const searchLimit = Math.min(limit, maxAllowedSearch - foundTracks.length);
-                    // O endpoint de busca
-                    const data = await spotifyAPI(`/search?q=${encodeURIComponent(query)}&type=track&limit=${searchLimit}&offset=${offset}`);
-                    
-                    if (!data.tracks || data.tracks.items.length === 0) break; // Fim dos resultados
-                    
-                    foundTracks = foundTracks.concat(data.tracks.items);
-                    offset += searchLimit;
-                    
-                    if (data.tracks.next === null) break;
-                }
-
-                // Filtrar e Processar
-                let duplicatesCount = 0;
-                let validTracks = [];
-                
-                foundTracks.forEach(track => {
-                    if (!track) return;
-                    if (existingUris.has(track.uri)) {
-                        duplicatesCount++;
-                    } else {
-                        // Evita duplicadas dentro da própria busca
-                        if (!validTracks.find(t => t.uri === track.uri)) {
-                            validTracks.push(track);
-                        }
+        async function carregarPlaylists() {
+            const data = await apiCall('/me/playlists?limit=50');
+            const select = document.getElementById('playlist-select');
+            select.innerHTML = '';
+            if (data && data.items) {
+                data.items.forEach(pl => {
+                    if(pl.owner.id === userId) { // Apenas playlists que o usuário pode editar
+                        const option = document.createElement('option');
+                        option.value = pl.id;
+                        option.text = `${pl.name} (${pl.tracks.total} músicas)`;
+                        select.appendChild(option);
                     }
                 });
+            }
+        }
 
-                if (validTracks.length === 0) {
-                    showToast("Nenhuma música nova encontrada ou todas já existem na playlist.", "error");
-                    toggleLoadingState(false);
-                    return;
+        // --- LÓGICA CORE: VARREDURA E DEDUPLICAÇÃO ---
+        function setStatus(msg, isError = false) {
+            const el = document.getElementById('status-msg');
+            el.classList.remove('hidden', 'text-red-500', 'text-green-500', 'text-zinc-400');
+            el.classList.add(isError ? 'text-red-500' : 'text-zinc-400');
+            el.innerText = msg;
+        }
+
+        async function gerarPreview() {
+            setStatus("Iniciando varredura na API do Spotify...");
+            const limit = parseInt(document.getElementById('track-limit').value) || 100;
+            const query = document.getElementById('genre-seed').value;
+            let existingUris = new Set();
+
+            if (currentMode === 'inc') {
+                const playlistId = document.getElementById('playlist-select').value;
+                if (!playlistId) return setStatus("Selecione uma playlist!", true);
+                setStatus("Lendo músicas já existentes na sua playlist para evitar duplicatas...");
+                
+                // Paginação para pegar todas as músicas da playlist existente (deduplicação)
+                let url = `/playlists/${playlistId}/tracks?fields=next,items(track(uri))&limit=100`;
+                while (url) {
+                    const res = await apiCall(url.replace('https://api.spotify.com/v1', ''));
+                    if (res && res.items) {
+                        res.items.forEach(item => { if(item.track) existingUris.add(item.track.uri) });
+                        url = res.next;
+                    } else url = null;
                 }
-
-                // Prepara dados para o preview
-                appState.scrapedTracks = validTracks;
-                appState.finalUrisToInject = validTracks.map(t => t.uri);
-                
-                renderPreview(duplicatesCount);
-                
-            } catch (error) {
-                showToast("Erro durante a busca: " + error.message, "error");
-            } finally {
-                toggleLoadingState(false);
             }
-        }
 
-        /** =========================================================================
-         *  INJEÇÃO NO SPOTIFY
-         * ========================================================================= */
-        async function confirmAndInject() {
-            const btn = document.getElementById('btn-confirm');
-            const indicator = document.getElementById('injecting-indicator');
-            btn.classList.add('hidden');
-            indicator.classList.remove('hidden');
-
-            try {
-                let targetPlaylistId = null;
-
-                if (appState.mode === 'create') {
-                    const name = document.getElementById('playlist-name').value.trim();
-                    const playlistData = await spotifyAPI(`/users/${appState.userId}/playlists`, 'POST', {
-                        name: name,
-                        description: `Playlist gerada automaticamente (Estilo: ${document.getElementById('genre-input').value})`,
-                        public: false
-                    });
-                    targetPlaylistId = playlistData.id;
-                } else {
-                    targetPlaylistId = document.getElementById('playlist-select').value;
-                }
-
-                // API de adicionar tracks só aceita 100 de cada vez
-                const chunkArray = (arr, size) => Array.from({ length: Math.ceil(arr.length / size) }, (v, i) => arr.slice(i * size, i * size + size));
-                const uriChunks = chunkArray(appState.finalUrisToInject, 100);
-
-                for (let i = 0; i < uriChunks.length; i++) {
-                    await spotifyAPI(`/playlists/${targetPlaylistId}/tracks`, 'POST', {
-                        uris: uriChunks[i]
-                    });
-                }
-
-                showToast("Sucesso! Músicas adicionadas à playlist no Spotify.", "success");
-                setTimeout(() => {
-                    cancelPreview(); // volta pra tela inicial
-                    document.getElementById('generator-form').reset();
-                    if(appState.mode === 'increment') fetchUserPlaylists(); // Recarrega se incrementou
-                }, 2000);
-
-            } catch (error) {
-                showToast("Falha ao salvar no Spotify.", "error");
-            } finally {
-                btn.classList.remove('hidden');
-                indicator.classList.add('hidden');
-            }
-        }
-
-        /** =========================================================================
-         *  GERENCIAMENTO DE INTERFACE (UI)
-         * ========================================================================= */
-        function setMode(mode) {
-            appState.mode = mode;
-            const btnCreate = document.getElementById('btn-mode-create');
-            const btnInc = document.getElementById('btn-mode-increment');
-            const fCreate = document.getElementById('create-fields');
-            const fInc = document.getElementById('increment-fields');
-
-            if (mode === 'create') {
-                btnCreate.classList.replace('text-spotify-lightGray', 'bg-spotify-gray');
-                btnCreate.classList.add('text-white');
-                btnCreate.classList.remove('hover:text-white');
-                
-                btnInc.classList.replace('bg-spotify-gray', 'text-spotify-lightGray');
-                btnInc.classList.remove('text-white');
-                btnInc.classList.add('hover:text-white');
-
-                fCreate.classList.replace('hidden', 'block');
-                fInc.classList.replace('block', 'hidden');
-                
-                // Exigência
-                document.getElementById('playlist-name').required = true;
-                document.getElementById('playlist-select').required = false;
-
-            } else {
-                btnInc.classList.replace('text-spotify-lightGray', 'bg-spotify-gray');
-                btnInc.classList.add('text-white');
-                btnInc.classList.remove('hover:text-white');
-                
-                btnCreate.classList.replace('bg-spotify-gray', 'text-spotify-lightGray');
-                btnCreate.classList.remove('text-white');
-                btnCreate.classList.add('hover:text-white');
-
-                fInc.classList.replace('hidden', 'block');
-                fCreate.classList.replace('block', 'hidden');
-
-                // Exigência
-                document.getElementById('playlist-name').required = false;
-                document.getElementById('playlist-select').required = true;
-            }
-        }
-
-        function populatePlaylistSelect() {
-            const select = document.getElementById('playlist-select');
-            select.innerHTML = '<option value="" disabled selected>Selecione uma playlist sua...</option>';
-            appState.playlists.forEach(p => {
-                const opt = document.createElement('option');
-                opt.value = p.id;
-                opt.text = `${p.name} (${p.tracks.total} músicas)`;
-                select.appendChild(opt);
-            });
-        }
-
-        function toggleLoadingState(isLoading) {
-            const btn = document.getElementById('btn-generate');
-            const loader = document.getElementById('loading-indicator');
-            if (isLoading) {
-                btn.classList.add('hidden');
-                loader.classList.remove('hidden');
-                loader.classList.add('flex');
-            } else {
-                btn.classList.remove('hidden');
-                loader.classList.add('hidden');
-                loader.classList.remove('flex');
-            }
-        }
-
-        function renderPreview(duplicatesCount) {
-            // Mudar Telas
-            document.getElementById('main-app').classList.add('hidden');
-            document.getElementById('preview-screen').classList.remove('hidden');
-
-            // Estatísticas
-            document.getElementById('stat-total').innerText = appState.scrapedTracks.length;
+            setStatus(`Buscando recomendações para: ${query}...`);
+            // Simulação de varredura (Spotify Search API) - Em um app real, aqui entraria paginação complexa.
+            // Para exemplo prático, vamos fazer buscas deslocadas (offset) para pegar volume.
+            let foundTracks = [];
+            let artistCounts = {};
             
-            // Calculo de horas (Aprox)
-            const totalMs = appState.scrapedTracks.reduce((acc, t) => acc + t.duration_ms, 0);
-            const hours = (totalMs / (1000 * 60 * 60)).toFixed(1);
-            document.getElementById('stat-time').innerText = `${hours} hrs`;
+            for(let offset = 0; offset < 1000 && foundTracks.length < limit; offset += 50) {
+                const searchRes = await apiCall(`/search?q=${encodeURIComponent(query)}&type=track&limit=50&offset=${offset}`);
+                if (!searchRes || !searchRes.tracks || searchRes.tracks.items.length === 0) break;
 
-            if (appState.mode === 'increment') {
-                const dupContainer = document.getElementById('stat-duplicates-container');
-                dupContainer.classList.remove('hidden');
-                document.getElementById('stat-duplicates').innerText = duplicatesCount;
-            } else {
-                document.getElementById('stat-duplicates-container').classList.add('hidden');
+                searchRes.tracks.items.forEach(track => {
+                    if (!existingUris.has(track.uri) && foundTracks.length < limit) {
+                        foundTracks.push(track);
+                        existingUris.add(track.uri); // Evitar duplicata na própria busca
+                        
+                        let artistName = track.artists[0].name;
+                        artistCounts[artistName] = (artistCounts[artistName] || 0) + 1;
+                    }
+                });
             }
 
-            // Agrupar por artistas
-            const artistCounts = {};
-            appState.scrapedTracks.forEach(t => {
-                const artistName = t.artists[0].name;
-                artistCounts[artistName] = (artistCounts[artistName] || 0) + 1;
-            });
-            
-            // Ordenar artistas por quantidade
-            const sortedArtists = Object.entries(artistCounts).sort((a, b) => b[1] - a[1]);
-            
-            const artistList = document.getElementById('artist-list');
-            artistList.innerHTML = '';
-            sortedArtists.forEach(([name, count]) => {
-                artistList.innerHTML += `
-                    <li class="flex justify-between items-center text-sm">
-                        <span class="text-white truncate pr-2">${name}</span>
-                        <span class="bg-[#282828] text-spotify-lightGray text-xs px-2 py-1 rounded-md min-w-[30px] text-center">${count}</span>
-                    </li>
-                `;
-            });
+            tracksToInject = foundTracks.map(t => t.uri);
+            renderPreview(foundTracks, artistCounts);
+        }
 
-            // Listar Faixas
-            const trackList = document.getElementById('track-list');
-            trackList.innerHTML = '';
-            appState.scrapedTracks.forEach((t, i) => {
-                const imgUrl = t.album.images.length > 0 ? t.album.images[t.album.images.length - 1].url : 'https://placehold.co/40x40/121212/1DB954?text=Music';
-                
-                const audioPlayer = t.preview_url 
-                    ? `<audio controls src="${t.preview_url}" class="w-full max-w-[200px] mt-2 sm:mt-0"></audio>` 
-                    : `<span class="text-xs text-spotify-lightGray italic mt-2 sm:mt-0">Sem preview</span>`;
+        function renderPreview(tracks, artistCounts) {
+            document.getElementById('form-container').classList.add('hidden');
+            document.getElementById('preview-section').classList.remove('hidden');
+            setStatus("");
 
-                trackList.innerHTML += `
-                    <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between p-3 hover:bg-[#282828] rounded-lg transition-colors gap-4 border-b border-[#282828] last:border-0">
-                        <div class="flex items-center gap-3 overflow-hidden">
-                            <span class="text-spotify-lightGray text-xs w-5 text-right">${i + 1}</span>
-                            <img src="${imgUrl}" alt="Album Art" class="w-10 h-10 rounded">
-                            <div class="truncate">
-                                <p class="text-white font-medium text-sm truncate">${t.name}</p>
-                                <p class="text-spotify-lightGray text-xs truncate">${t.artists.map(a=>a.name).join(', ')}</p>
-                            </div>
-                        </div>
-                        <div class="flex-shrink-0 flex justify-end">
-                            ${audioPlayer}
+            const statsEl = document.getElementById('preview-stats');
+            statsEl.innerText = `${tracks.length} novas faixas encontradas e validadas.`;
+
+            const listEl = document.getElementById('preview-list');
+            listEl.innerHTML = '';
+
+            // Mostrar Artistas Encontrados
+            const artistsHtml = Object.entries(artistCounts)
+                .sort((a, b) => b[1] - a[1]) // Ordenar por quem tem mais músicas
+                .slice(0, 10)
+                .map(entry => `<span class="bg-zinc-800 px-2 py-1 rounded text-xs border border-zinc-600">${entry[0]}: ${entry[1]}</span>`)
+                .join(' ');
+
+            listEl.innerHTML += `<div class="mb-4"><p class="text-sm text-zinc-400 mb-2">Principais Artistas Minerados:</p><div class="flex flex-wrap gap-2">${artistsHtml}</div></div>`;
+            listEl.innerHTML += `<hr class="border-zinc-700 mb-4">`;
+
+            // Mostrar algumas faixas de exemplo
+            tracks.slice(0, 20).forEach(track => {
+                let previewAudio = track.preview_url ? `<audio controls src="${track.preview_url}" class="h-8 w-full mt-1"></audio>` : `<span class="text-xs text-red-400">Sem preview de áudio</span>`;
+                listEl.innerHTML += `
+                    <div class="mb-3 flex items-center gap-3">
+                        ${track.album.images[0] ? `<img src="${track.album.images[0].url}" class="w-10 h-10 rounded">` : ''}
+                        <div class="flex-1">
+                            <p class="text-sm font-bold truncate">${track.name}</p>
+                            <p class="text-xs text-zinc-400 truncate">${track.artists[0].name}</p>
+                            ${previewAudio}
                         </div>
                     </div>
                 `;
             });
-        }
-
-        function cancelPreview() {
-            document.getElementById('preview-screen').classList.add('hidden');
-            document.getElementById('main-app').classList.remove('hidden');
-        }
-
-        /** =========================================================================
-         *  INICIALIZAÇÃO DO APP
-         * ========================================================================= */
-        async function init() {
-            if (checkAuth()) {
-                document.getElementById('login-screen').classList.add('hidden');
-                document.getElementById('main-app').classList.remove('hidden');
-                
-                try {
-                    await fetchUserProfile();
-                    await fetchUserPlaylists();
-                } catch (e) {
-                    // Erro de token geralmente cai aqui
-                }
-            } else {
-                document.getElementById('login-screen').classList.remove('hidden');
-                document.getElementById('main-app').classList.add('hidden');
+            if(tracks.length > 20) {
+                listEl.innerHTML += `<p class="text-center text-sm text-zinc-500 mt-4">... e mais ${tracks.length - 20} faixas.</p>`;
             }
         }
 
-        // Boot
-        window.addEventListener('load', init);
+        function cancelarPreview() {
+            document.getElementById('preview-section').classList.add('hidden');
+            document.getElementById('form-container').classList.remove('hidden');
+            tracksToInject = [];
+        }
 
+        // --- INJEÇÃO NO SPOTIFY ---
+        async function confirmarEInjetar() {
+            if (tracksToInject.length === 0) return alert("Nenhuma faixa para injetar!");
+            
+            let playlistId = '';
+            
+            if (currentMode === 'new') {
+                setStatus("Criando nova playlist no seu perfil...");
+                const plName = document.getElementById('playlist-name').value || 'Gerador Indie Rock';
+                const resPl = await apiCall(`/users/${userId}/playlists`, 'POST', {
+                    name: plName,
+                    description: "Gerada automaticamente via Script - Indie Rock",
+                    public: false
+                });
+                if(!resPl) return setStatus("Erro ao criar playlist.", true);
+                playlistId = resPl.id;
+            } else {
+                playlistId = document.getElementById('playlist-select').value;
+            }
+
+            setStatus("Injetando faixas no Spotify em lotes de 100...");
+            
+            // O Spotify só aceita 100 URIs por request POST
+            const chunkSize = 100;
+            for (let i = 0; i < tracksToInject.length; i += chunkSize) {
+                const chunk = tracksToInject.slice(i, i + chunkSize);
+                await apiCall(`/playlists/${playlistId}/tracks`, 'POST', { uris: chunk });
+                setStatus(`Injetando: ${Math.min(i + chunkSize, tracksToInject.length)} / ${tracksToInject.length} músicas...`);
+            }
+
+            document.getElementById('status-msg').classList.replace('text-zinc-400', 'text-green-500');
+            setStatus("Sucesso absoluto! A playlist está pronta no seu Spotify.");
+            setTimeout(() => { window.location.reload(); }, 3000);
+        }
     </script>
 </body>
 </html>
