@@ -312,7 +312,7 @@
             let foundTracks = [];
             let artistCounts = {};
             
-            for(let offset = 0; offset < 1000 && foundTracks.length < limit; offset += 50) {
+            for(let offset = 0; offset < 1000 && foundTracks.length < limit; offset += 20) {
                 console.log(`Puxando lote de músicas da pesquisa... Offset atual: ${offset}`);
                 const searchRes = await apiCall(`/search?q=${queryEncoded}&type=track&limit=50&offset=${offset}`);
                 
