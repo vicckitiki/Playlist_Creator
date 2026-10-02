@@ -3,24 +3,28 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Gerador Indie Rock Massivo - Spotify</title>
+    <title>Gerador de Playlist Massivo - Spotify</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         .tab-active { border-bottom: 2px solid #22c55e; color: white; }
         .tab-inactive { color: #a1a1aa; }
     </style>
 </head>
+
 <body class="bg-zinc-900 text-white min-h-screen font-sans">
 
+    <!-- LOGIN -->
     <div id="login-section" class="flex flex-col items-center justify-center min-h-screen p-4 space-y-6">
         <h1 class="text-4xl font-bold text-center">Gerador de Playlist Massiva</h1>
-        <p class="text-zinc-400 text-center max-w-md">Cole o Token de Autorização gerado no painel do Spotify Developer para ignorar o bloqueio de permissões.</p>
-        <input type="text" id="manual-token" class="w-full max-w-2xl bg-zinc-700 rounded p-4 text-white focus:outline-none focus:ring-2 focus:ring-green-500 font-mono text-sm" placeholder="Ex: BQCAzcjeLMMNFnJogBzC6h2FL2XbIIhFmEHFI1FQ...">
-        <button onclick="loginComTokenManual()" class="bg-green-500 hover:bg-green-400 text-black font-bold py-3 px-8 rounded-full transition shadow-lg">
-            Iniciar com Token
+        <p class="text-zinc-400 text-center max-w-md">
+            Crie ou incremente playlists gigantes no seu Spotify usando extração inteligente de discografias.
+        </p>
+        <button onclick="loginComPKCE()" class="bg-green-500 hover:bg-green-400 text-black font-bold py-3 px-8 rounded-full transition shadow-lg">
+            Conectar com o Spotify
         </button>
     </div>
 
+    <!-- APP -->
     <div id="app-section" class="hidden max-w-4xl mx-auto p-6 pt-12">
         <div class="flex justify-between items-center mb-8">
             <h2 class="text-3xl font-bold">Painel de Geração</h2>
@@ -55,7 +59,7 @@
 
             <div>
                 <label class="block text-sm text-zinc-400 mb-1">Quantidade de Músicas a Buscar</label>
-                <input type="number" id="track-limit" class="w-full bg-zinc-700 rounded p-3 text-white focus:outline-none focus:ring-2 focus:ring-green-500" value="300" max="10000">
+                <input type="number" id="track-limit" class="w-full bg-zinc-700 rounded p-3 text-white focus:outline-none focus:ring-2 focus:ring-green-500" value="300" min="1" max="10000">
             </div>
 
             <button onclick="gerarPreview()" class="w-full bg-green-500 hover:bg-green-400 text-black font-bold py-4 rounded-full mt-2 transition text-lg">
@@ -63,10 +67,10 @@
             </button>
         </div>
 
+        <!-- PREVIEW -->
         <div id="preview-section" class="hidden bg-zinc-800 p-6 rounded-xl shadow-lg mt-6">
             <h3 class="text-xl font-bold mb-2">Preview da Geração</h3>
             <p id="preview-stats" class="text-zinc-400 mb-4">Analisando faixas...</p>
-            
             <div class="h-64 overflow-y-auto bg-zinc-900 rounded p-4 mb-4 border border-zinc-700" id="preview-list"></div>
 
             <div class="flex space-x-4">
@@ -82,292 +86,549 @@
         <div id="status-msg" class="mt-4 text-center text-sm font-semibold hidden"></div>
     </div>
 
-    <script>
-        let accessToken = '';
-        let userId = '';
-        let currentMode = 'new';
-        let tracksToInject = []; 
+<script>
+/* ============================================================
+ * CONFIGURAÇÃO
+ * ============================================================ */
+const CLIENT_ID = '5682ad86f0e645c183a9fdd721d6768d';
+const REDIRECT_URI = 'https://vicckitiki.github.io/Playlist_Creator/';
+const SCOPES = 'playlist-modify-public playlist-modify-private playlist-read-private user-read-private';
+const API_BASE = 'https://api.spotify.com/v1';
 
-        const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+let accessToken = localStorage.getItem('access_token');
+let refreshTokenValue = localStorage.getItem('refresh_token');
+let expiresAt = Number(localStorage.getItem('expires_at') || 0);
 
-        function loginComTokenManual() {
-            const tokenInput = document.getElementById('manual-token').value.trim();
-            if (!tokenInput) {
-                alert('Cole o token gerado no painel do Spotify Developer antes de continuar.');
-                return;
+let userId = '';
+let currentMode = 'new';
+let tracksToInject = [];
+
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+/* ============================================================
+ * UTILITÁRIOS
+ * ============================================================ */
+function setStatus(msg, isError = false) {
+    const el = document.getElementById('status-msg');
+    if (!msg) {
+        el.classList.add('hidden');
+        el.innerText = '';
+        return;
+    }
+    el.classList.remove('hidden', 'text-red-500', 'text-green-500', 'text-zinc-400');
+    el.classList.add(isError ? 'text-red-500' : 'text-zinc-400');
+    el.innerText = msg;
+}
+
+function getApiUrl(endpoint) {
+    if (!endpoint) return API_BASE;
+    if (endpoint.startsWith('https://api.spotify.com/')) return endpoint;
+    if (endpoint.startsWith('/v1/')) return `https://api.spotify.com${endpoint}`;
+    if (endpoint.startsWith('/')) return `${API_BASE}${endpoint}`;
+    return `${API_BASE}/${endpoint}`;
+}
+
+function generateRandomString(length = 64) {
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+    const values = new Uint32Array(length);
+    crypto.getRandomValues(values);
+    return Array.from(values, value => chars[value % chars.length]).join('');
+}
+
+async function generateCodeChallenge(codeVerifier) {
+    const data = new TextEncoder().encode(codeVerifier);
+    const digest = await crypto.subtle.digest('SHA-256', data);
+    return btoa(String.fromCharCode(...new Uint8Array(digest)))
+        .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+function escapeHtml(value) {
+    return String(value ?? '')
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#039;');
+}
+
+/* ============================================================
+ * OAUTH 2.0 + PKCE
+ * ============================================================ */
+async function loginComPKCE() {
+    const codeVerifier = generateRandomString(64);
+    const codeChallenge = await generateCodeChallenge(codeVerifier);
+    const state = generateRandomString(32);
+
+    localStorage.setItem('code_verifier', codeVerifier);
+    localStorage.setItem('oauth_state', state);
+
+    const params = new URLSearchParams({
+        client_id: CLIENT_ID,
+        response_type: 'code',
+        redirect_uri: REDIRECT_URI,
+        scope: SCOPES,
+        code_challenge_method: 'S256',
+        code_challenge: codeChallenge,
+        state: state,
+        show_dialog: 'true'
+    });
+
+    window.location.href = `https://accounts.spotify.com/authorize?${params.toString()}`;
+}
+
+async function fetchToken(code) {
+    const codeVerifier = localStorage.getItem('code_verifier');
+    if (!codeVerifier) throw new Error('Code verifier não encontrado. Faça login novamente.');
+
+    const response = await fetch('https://accounts.spotify.com/api/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+            client_id: CLIENT_ID,
+            grant_type: 'authorization_code',
+            code: code,
+            redirect_uri: REDIRECT_URI,
+            code_verifier: codeVerifier
+        })
+    });
+
+    const data = await response.json().catch(() => null);
+
+    if (!response.ok || !data?.access_token) {
+        throw new Error(data?.error_description || data?.error || 'Não foi possível obter o token do Spotify.');
+    }
+
+    saveTokenData(data);
+    localStorage.removeItem('code_verifier');
+    localStorage.removeItem('oauth_state');
+    return data;
+}
+
+function saveTokenData(data) {
+    accessToken = data.access_token;
+    if (data.refresh_token) {
+        refreshTokenValue = data.refresh_token;
+        localStorage.setItem('refresh_token', refreshTokenValue);
+    }
+    const expiresIn = Number(data.expires_in || 3600);
+    expiresAt = Date.now() + (expiresIn * 1000);
+    
+    localStorage.setItem('access_token', accessToken);
+    localStorage.setItem('expires_at', String(expiresAt));
+}
+
+async function refreshAccessToken() {
+    if (!refreshTokenValue) return false;
+
+    const response = await fetch('https://accounts.spotify.com/api/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+            grant_type: 'refresh_token',
+            refresh_token: refreshTokenValue,
+            client_id: CLIENT_ID
+        })
+    });
+
+    const data = await response.json().catch(() => null);
+
+    if (!response.ok || !data?.access_token) {
+        if (data?.error === 'invalid_grant') logout();
+        return false;
+    }
+
+    saveTokenData(data);
+    return true;
+}
+
+function logout() {
+    localStorage.clear();
+    accessToken = null;
+    refreshTokenValue = null;
+    expiresAt = 0;
+    window.location.reload();
+}
+
+/* ============================================================
+ * CHAMADAS À API SPOTIFY
+ * ============================================================ */
+async function apiCall(endpoint, method = 'GET', body = null, retryAfterRefresh = true) {
+    if (accessToken && refreshTokenValue && expiresAt && Date.now() >= expiresAt - 60000) {
+        await refreshAccessToken();
+    }
+
+    const url = getApiUrl(endpoint);
+    const options = {
+        method,
+        headers: {
+            'Authorization': `Bearer ${accessToken}`,
+            'Content-Type': 'application/json'
+        }
+    };
+
+    if (body !== null) options.body = JSON.stringify(body);
+
+    try {
+        const response = await fetch(url, options);
+        const data = await response.json().catch(() => null);
+
+        if (response.status === 401 && retryAfterRefresh) {
+            const refreshed = await refreshAccessToken();
+            if (refreshed) return apiCall(endpoint, method, body, false);
+            logout();
+            return null;
+        }
+
+        if (response.status === 403) {
+            const message = data?.error?.message || data?.message || 'Operação não autorizada pelo Spotify.';
+            setStatus(`Spotify recusou a operação (403): ${message}`, true);
+            return null;
+        }
+
+        if (response.status === 429) {
+            const retryAfter = Number(response.headers.get('Retry-After')) || 5;
+            setStatus(`Spotify limitou temporariamente as requisições. Aguardando ${retryAfter}s...`);
+            await sleep(retryAfter * 1000);
+            return apiCall(endpoint, method, body, retryAfterRefresh);
+        }
+
+        if (!response.ok) {
+            setStatus(`Erro Spotify (${response.status}): ${data?.error?.message || 'erro desconhecido'}`, true);
+            return null;
+        }
+
+        return data;
+    } catch (error) {
+        setStatus(`Falha de comunicação com o Spotify: ${error.message}`, true);
+        return null;
+    }
+}
+
+/* ============================================================
+ * INICIALIZAÇÃO DA INTERFACE
+ * ============================================================ */
+async function inicializarOAuth() {
+    const urlParams = new URLSearchParams(window.location.search);
+    const code = urlParams.get('code');
+    const returnedState = urlParams.get('state');
+    const oauthError = urlParams.get('error');
+
+    if (oauthError) {
+        window.history.replaceState({}, document.title, window.location.pathname);
+        return setStatus(`Autorização não concluída: ${oauthError}`, true);
+    }
+
+    if (code) {
+        const storedState = localStorage.getItem('oauth_state');
+        if (!storedState || storedState !== returnedState) {
+            localStorage.removeItem('oauth_state');
+            localStorage.removeItem('code_verifier');
+            window.history.replaceState({}, document.title, window.location.pathname);
+            alert('Falha de segurança na autenticação. Faça login novamente.');
+            return;
+        }
+
+        try {
+            await fetchToken(code);
+            window.history.replaceState({}, document.title, window.location.pathname);
+            await iniciarApp();
+        } catch (error) {
+            alert(error.message);
+            window.history.replaceState({}, document.title, window.location.pathname);
+        }
+        return;
+    }
+
+    if (accessToken) {
+        await iniciarApp();
+        return;
+    }
+
+    document.getElementById('login-section').classList.remove('hidden');
+    document.getElementById('app-section').classList.add('hidden');
+}
+
+async function iniciarApp() {
+    document.getElementById('login-section').classList.add('hidden');
+    document.getElementById('app-section').classList.remove('hidden');
+    setStatus('Validando sua sessão com o Spotify...');
+
+    const userData = await apiCall('/me');
+    if (!userData) return;
+
+    userId = userData.id;
+    document.getElementById('user-name').innerText = `Olá, ${userData.display_name || userData.id}`;
+    
+    await carregarPlaylists();
+    setStatus('');
+}
+
+function switchTab(tab) {
+    currentMode = tab;
+    const btnNew = document.getElementById('tab-new');
+    const btnInc = document.getElementById('tab-inc');
+    const fieldsNew = document.getElementById('new-playlist-fields');
+    const fieldsInc = document.getElementById('inc-playlist-fields');
+
+    if (tab === 'new') {
+        btnNew.className = 'pb-2 px-4 tab-active font-semibold';
+        btnInc.className = 'pb-2 px-4 tab-inactive font-semibold hover:text-white transition';
+        fieldsNew.classList.remove('hidden');
+        fieldsInc.classList.add('hidden');
+    } else {
+        btnInc.className = 'pb-2 px-4 tab-active font-semibold';
+        btnNew.className = 'pb-2 px-4 tab-inactive font-semibold hover:text-white transition';
+        fieldsInc.classList.remove('hidden');
+        fieldsNew.classList.add('hidden');
+    }
+}
+
+/* ============================================================
+ * LEITURA DE PLAYLISTS E DEDUPLICAÇÃO
+ * ============================================================ */
+async function carregarPlaylists() {
+    const select = document.getElementById('playlist-select');
+    select.innerHTML = '<option value="">Carregando suas playlists...</option>';
+
+    let url = '/me/playlists?limit=50';
+    const playlists = [];
+
+    while (url) {
+        const data = await apiCall(url);
+        if (!data || !Array.isArray(data.items)) break;
+        playlists.push(...data.items);
+        url = data.next;
+    }
+
+    select.innerHTML = '';
+    const minhasPlaylists = playlists.filter(pl => pl?.owner?.id === userId);
+
+    if (minhasPlaylists.length === 0) {
+        const option = document.createElement('option');
+        option.value = '';
+        option.text = 'Nenhuma playlist própria encontrada';
+        select.appendChild(option);
+        return;
+    }
+
+    minhasPlaylists.forEach(playlist => {
+        const option = document.createElement('option');
+        option.value = playlist.id;
+        const totalItems = playlist.items?.total ?? playlist.tracks?.total ?? 0;
+        option.text = `${playlist.name} (${totalItems} músicas)`;
+        select.appendChild(option);
+    });
+}
+
+async function carregarUrisDaPlaylist(playlistId) {
+    const existingUris = new Set();
+    let url = `/playlists/${playlistId}/items?fields=next,items(item(uri,type)),total&limit=50`;
+
+    while (url) {
+        const data = await apiCall(url);
+        if (!data || !Array.isArray(data.items)) break;
+
+        for (const entry of data.items) {
+            const item = entry?.item || entry?.track;
+            if (item && item.type === 'track' && item.uri) {
+                existingUris.add(item.uri);
             }
-            accessToken = tokenInput;
-            iniciarApp();
+        }
+        url = data.next;
+    }
+    return existingUris;
+}
+
+/* ============================================================
+ * EXTRAÇÃO PROFUNDA E GERAÇÃO
+ * ============================================================ */
+async function gerarPreview() {
+    const metaTotal = Math.max(1, Math.min(parseInt(document.getElementById('track-limit').value) || 300, 10000));
+    const queryRaw = document.getElementById('genre-seed').value.trim();
+    if (!queryRaw) return setStatus('Informe um gênero, artista ou termo de busca.', true);
+    const queryEncoded = encodeURIComponent(queryRaw);
+
+    let existingUris = new Set();
+
+    if (currentMode === 'inc') {
+        const playlistId = document.getElementById('playlist-select').value;
+        if (!playlistId) return setStatus('Selecione uma playlist!', true);
+        
+        setStatus('Lendo músicas da sua playlist para evitar duplicatas...');
+        existingUris = await carregarUrisDaPlaylist(playlistId);
+    }
+
+    setStatus(`Pesquisando artistas relacionados a "${queryRaw}"...`);
+    const artistIds = new Set();
+    
+    for (let page = 0; page < 20; page++) {
+        const offset = page * 10;
+        const searchRes = await apiCall(`/search?q=${queryEncoded}&type=track&limit=10&offset=${offset}`);
+        
+        if (!searchRes?.tracks?.items?.length) break;
+
+        for (const track of searchRes.tracks.items) {
+            if (Array.isArray(track.artists)) {
+                track.artists.forEach(artist => { if (artist?.id) artistIds.add(artist.id); });
+            }
+        }
+        await sleep(150);
+    }
+
+    if (artistIds.size === 0) return setStatus('Nenhum artista encontrado. Tente um termo diferente.', true);
+
+    setStatus(`Mapeados ${artistIds.size} artistas! Extraindo discografias...`);
+    const foundTracks = [];
+    const foundUris = new Set();
+    const artistCounts = {};
+
+    for (const artistId of artistIds) {
+        if (foundTracks.length >= metaTotal) break;
+
+        let albumUrl = `/artists/${artistId}/albums?include_groups=album,single&limit=50`;
+        const artistAlbums = [];
+
+        while (albumUrl && foundTracks.length < metaTotal) {
+            const albumsRes = await apiCall(albumUrl);
+            if (!albumsRes?.items) break;
+            artistAlbums.push(...albumsRes.items);
+            albumUrl = albumsRes.next;
         }
 
-        function logout() {
-            window.location.reload();
-        }
+        const processedAlbums = new Set();
 
-        async function apiCall(endpoint, method = 'GET', body = null) {
-            const url = endpoint.startsWith('http') ? endpoint : `https://api.spotify.com/v1${endpoint}`;
-            const options = {
-                method: method,
-                headers: { 
-                    'Authorization': `Bearer ${accessToken}`, 
-                    'Content-Type': 'application/json' 
+        for (const album of artistAlbums) {
+            if (foundTracks.length >= metaTotal) break;
+            if (!album?.id || processedAlbums.has(album.id)) continue;
+            processedAlbums.add(album.id);
+
+            let tracksUrl = `/albums/${album.id}/tracks?limit=50`;
+            while (tracksUrl && foundTracks.length < metaTotal) {
+                const tracksRes = await apiCall(tracksUrl);
+                if (!tracksRes?.items) break;
+
+                for (const track of tracksRes.items) {
+                    if (foundTracks.length >= metaTotal) break;
+                    if (!track?.uri || existingUris.has(track.uri) || foundUris.has(track.uri)) continue;
+
+                    track.album = { id: album.id, name: album.name, images: album.images || [] };
+                    if (!track.artists?.length) track.artists = [{ name: 'Desconhecido' }];
+
+                    foundTracks.push(track);
+                    foundUris.add(track.uri);
+
+                    const artistName = track.artists[0]?.name || 'Desconhecido';
+                    artistCounts[artistName] = (artistCounts[artistName] || 0) + 1;
                 }
-            };
-            if (body) options.body = JSON.stringify(body);
-            
-            try {
-                const response = await fetch(url, options);
-                
-                if (response.status === 401 || response.status === 403) { 
-                    alert("O Token inserido não possui permissão de gravação ou expirou. Por favor, gere um novo token na documentação do Spotify com as permissões corretas marcadas.");
-                    logout(); 
-                    return null; 
-                }
-                
-                if (response.status === 429) {
-                    await sleep(3000);
-                    return apiCall(endpoint, method, body);
-                }
-                
-                return await response.json().catch(() => null); 
-            } catch (error) {
-                console.error("FALHA NA REQUISIÇÃO:", error);
-                return null;
+                tracksUrl = tracksRes.next;
+                await sleep(100);
             }
         }
+    }
 
-        async function iniciarApp() {
-            document.getElementById('login-section').classList.add('hidden');
-            document.getElementById('app-section').classList.remove('hidden');
-            
-            const userData = await apiCall('/me');
-            if (userData) {
-                userId = userData.id;
-                document.getElementById('user-name').innerText = `Olá, ${userData.display_name || userData.id}`;
-                carregarPlaylists();
-            }
-        }
+    if (foundTracks.length === 0) return setStatus('Nenhuma música nova foi encontrada.', true);
 
-        function switchTab(tab) {
-            currentMode = tab;
-            const btnNew = document.getElementById('tab-new');
-            const btnInc = document.getElementById('tab-inc');
-            const fieldsNew = document.getElementById('new-playlist-fields');
-            const fieldsInc = document.getElementById('inc-playlist-fields');
+    tracksToInject = foundTracks.map(track => track.uri);
+    renderPreview(foundTracks, artistCounts);
+}
 
-            if (tab === 'new') {
-                btnNew.className = "pb-2 px-4 tab-active font-semibold";
-                btnInc.className = "pb-2 px-4 tab-inactive font-semibold hover:text-white transition";
-                fieldsNew.classList.remove('hidden');
-                fieldsInc.classList.add('hidden');
-            } else {
-                btnInc.className = "pb-2 px-4 tab-active font-semibold";
-                btnNew.className = "pb-2 px-4 tab-inactive font-semibold hover:text-white transition";
-                fieldsInc.classList.remove('hidden');
-                fieldsNew.classList.add('hidden');
-            }
-        }
+/* ============================================================
+ * INTERFACE DE PREVIEW E INJEÇÃO
+ * ============================================================ */
+function renderPreview(tracks, artistCounts) {
+    document.getElementById('form-container').classList.add('hidden');
+    document.getElementById('preview-section').classList.remove('hidden');
+    setStatus('');
 
-        async function carregarPlaylists() {
-            let url = '/me/playlists?limit=50';
-            const select = document.getElementById('playlist-select');
-            select.innerHTML = '<option value="">Carregando suas playlists...</option>';
-            
-            const playlists = [];
-            while (url) {
-                const data = await apiCall(url);
-                if (!data || !Array.isArray(data.items)) break;
-                playlists.push(...data.items);
-                url = data.next;
-            }
+    document.getElementById('preview-stats').innerText = `${tracks.length} novas faixas extraídas da discografia.`;
+    const listEl = document.getElementById('preview-list');
+    listEl.innerHTML = '';
 
-            select.innerHTML = '';
-            const minhasPlaylists = playlists.filter(pl => pl && pl.owner && pl.owner.id === userId);
-            
-            minhasPlaylists.forEach(pl => {
-                const option = document.createElement('option');
-                option.value = pl.id;
-                option.text = `${pl.name} (${pl.tracks?.total || 0} músicas)`;
-                select.appendChild(option);
+    const artistsHtml = Object.entries(artistCounts)
+        .sort((a, b) => b[1] - a[1]).slice(0, 10)
+        .map(entry => `<span class="bg-zinc-800 px-2 py-1 rounded text-xs border border-zinc-600">${escapeHtml(entry[0])}: ${entry[1]}</span>`)
+        .join(' ');
+
+    listEl.innerHTML += `<div class="mb-4"><p class="text-sm text-zinc-400 mb-2">Principais Artistas Minerados:</p><div class="flex flex-wrap gap-2">${artistsHtml}</div></div><hr class="border-zinc-700 mb-4">`;
+
+    tracks.slice(0, 20).forEach(track => {
+        const previewAudio = track.preview_url ? `<audio controls src="${escapeHtml(track.preview_url)}" class="h-8 w-full mt-1"></audio>` : `<span class="text-xs text-red-400">Sem preview de áudio</span>`;
+        const imageUrl = track.album?.images?.[0]?.url || '';
+        const artistName = track.artists?.[0]?.name || 'Desconhecido';
+
+        listEl.innerHTML += `
+            <div class="mb-3 flex items-center gap-3">
+                ${imageUrl ? `<img src="${escapeHtml(imageUrl)}" class="w-10 h-10 rounded">` : `<div class="w-10 h-10 bg-zinc-700 rounded"></div>`}
+                <div class="flex-1 min-w-0">
+                    <p class="text-sm font-bold truncate">${escapeHtml(track.name || 'Sem nome')}</p>
+                    <p class="text-xs text-zinc-400 truncate">${escapeHtml(artistName)}</p>
+                    ${previewAudio}
+                </div>
+            </div>`;
+    });
+
+    if (tracks.length > 20) {
+        listEl.innerHTML += `<p class="text-center text-sm text-zinc-500 mt-4">... e mais ${tracks.length - 20} faixas ocultas no preview.</p>`;
+    }
+}
+
+function cancelarPreview() {
+    document.getElementById('preview-section').classList.add('hidden');
+    document.getElementById('form-container').classList.remove('hidden');
+    tracksToInject = [];
+    setStatus('');
+}
+
+async function confirmarEInjetar() {
+    if (tracksToInject.length === 0) return alert('Nenhuma faixa para injetar!');
+
+    const buttons = document.querySelectorAll('#preview-section button');
+    buttons.forEach(b => { b.disabled = true; b.classList.add('opacity-50', 'cursor-not-allowed'); });
+
+    try {
+        let playlistId = '';
+
+        if (currentMode === 'new') {
+            setStatus('Criando a nova playlist no seu perfil...');
+            const plName = document.getElementById('playlist-name').value.trim() || 'Gerador Indie Rock';
+            const resPl = await apiCall('/me/playlists', 'POST', {
+                name: plName,
+                description: 'Criada via Gerador de Playlist Massiva.',
+                public: false
             });
+
+            if (!resPl?.id) throw new Error('O Spotify não retornou o ID da nova playlist.');
+            playlistId = resPl.id;
+        } else {
+            playlistId = document.getElementById('playlist-select').value;
+            if (!playlistId) throw new Error('Nenhuma playlist selecionada.');
         }
 
-        function setStatus(msg, isError = false) {
-            const el = document.getElementById('status-msg');
-            el.classList.remove('hidden', 'text-red-500', 'text-green-500', 'text-zinc-400');
-            el.classList.add(isError ? 'text-red-500' : 'text-zinc-400');
-            el.innerText = msg;
+        const chunkSize = 100;
+        for (let i = 0; i < tracksToInject.length; i += chunkSize) {
+            const chunk = tracksToInject.slice(i, i + chunkSize);
+            const result = await apiCall(`/playlists/${playlistId}/items`, 'POST', { uris: chunk });
+
+            if (!result) throw new Error(`Falha ao adicionar o lote ${Math.floor(i / chunkSize) + 1}.`);
+
+            const processed = Math.min(i + chunk.length, tracksToInject.length);
+            setStatus(`Injetando: ${processed} / ${tracksToInject.length} músicas...`);
+            if (processed < tracksToInject.length) await sleep(300);
         }
 
-        async function gerarPreview() {
-            const metaTotal = parseInt(document.getElementById('track-limit').value) || 300;
-            const queryRaw = document.getElementById('genre-seed').value.trim();
-            const queryEncoded = encodeURIComponent(queryRaw);
-            
-            let existingUris = new Set();
-            
-            if (currentMode === 'inc') {
-                const playlistId = document.getElementById('playlist-select').value;
-                if (!playlistId) return setStatus("Selecione uma playlist!", true);
-                
-                setStatus("Lendo músicas da sua playlist para evitar duplicatas...");
-                let url = `/playlists/${playlistId}/tracks?fields=next,items(track(uri))&limit=50`;
-                while (url) {
-                    const res = await apiCall(url);
-                    if (res && res.items) {
-                        res.items.forEach(item => { if(item && item.track) existingUris.add(item.track.uri) });
-                        url = res.next;
-                    } else {
-                        url = null;
-                    }
-                }
-            }
+        document.getElementById('status-msg').classList.replace('text-zinc-400', 'text-green-500');
+        setStatus('Sucesso! A playlist foi criada/atualizada no Spotify.');
 
-            setStatus(`Mapeando artistas relacionados a '${queryRaw}'...`);
-            let artistIds = new Set();
-            
-            for(let offset = 0; offset < 200; offset += 10) {
-                const searchRes = await apiCall(`/search?q=${queryEncoded}&type=track&limit=10&offset=${offset}`);
-                if (!searchRes || !searchRes.tracks || searchRes.tracks.items.length === 0) break;
-
-                searchRes.tracks.items.forEach(track => {
-                    if (track.artists) track.artists.forEach(a => artistIds.add(a.id));
-                });
-                await sleep(150); 
-            }
-
-            if (artistIds.size === 0) return setStatus("Nenhum artista encontrado. Tente um termo mais comum.", true);
-
-            setStatus(`Mapeados ${artistIds.size} artistas! Extraindo discografias...`);
-            let foundTracks = [];
-            let artistCounts = {};
-            
-            for (let a_id of artistIds) {
-                if (foundTracks.length >= metaTotal) break;
-
-                let albumUrl = `/artists/${a_id}/albums?include_groups=album,single&limit=50`;
-                while(albumUrl && foundTracks.length < metaTotal) {
-                    const albumsRes = await apiCall(albumUrl);
-                    if (!albumsRes || !albumsRes.items) break;
-
-                    for (let album of albumsRes.items) {
-                        if (foundTracks.length >= metaTotal) break;
-
-                        let tracksUrl = `/albums/${album.id}/tracks?limit=50`;
-                        while(tracksUrl && foundTracks.length < metaTotal) {
-                            const tracksRes = await apiCall(tracksUrl);
-                            if (!tracksRes || !tracksRes.items) break;
-
-                            for (let track of tracksRes.items) {
-                                if (foundTracks.length >= metaTotal) break;
-
-                                if (track.uri && !existingUris.has(track.uri)) {
-                                    track.album = { images: album.images || [] };
-                                    if (!track.artists || track.artists.length === 0) track.artists = [{name: "Desconhecido"}];
-
-                                    foundTracks.push(track);
-                                    existingUris.add(track.uri);
-                                    
-                                    let artistName = track.artists[0].name;
-                                    artistCounts[artistName] = (artistCounts[artistName] || 0) + 1;
-                                }
-                            }
-                            tracksUrl = tracksRes.next;
-                            await sleep(100); 
-                        }
-                    }
-                    albumUrl = albumsRes.next;
-                }
-            }
-
-            if (foundTracks.length === 0) return setStatus("Erro: Nenhuma música nova recolhida.", true);
-
-            tracksToInject = foundTracks.map(t => t.uri);
-            renderPreview(foundTracks, artistCounts);
+        if (playlistId && confirm('Playlist concluída com sucesso! Deseja abrir no Spotify?')) {
+            window.open(`https://open.spotify.com/playlist/${playlistId}`, '_blank', 'noopener,noreferrer');
         }
 
-        function renderPreview(tracks, artistCounts) {
-            document.getElementById('form-container').classList.add('hidden');
-            document.getElementById('preview-section').classList.remove('hidden');
-            setStatus("");
+        setTimeout(() => window.location.reload(), 1500);
 
-            document.getElementById('preview-stats').innerText = `${tracks.length} novas faixas extraídas.`;
+    } catch (error) {
+        setStatus(`Operação interrompida: ${error.message}`, true);
+        buttons.forEach(b => { b.disabled = false; b.classList.remove('opacity-50', 'cursor-not-allowed'); });
+    }
+}
 
-            const listEl = document.getElementById('preview-list');
-            listEl.innerHTML = '';
-
-            const artistsHtml = Object.entries(artistCounts)
-                .sort((a, b) => b[1] - a[1])
-                .slice(0, 10)
-                .map(entry => `<span class="bg-zinc-800 px-2 py-1 rounded text-xs border border-zinc-600">${entry[0]}: ${entry[1]}</span>`)
-                .join(' ');
-
-            listEl.innerHTML += `<div class="mb-4"><p class="text-sm text-zinc-400 mb-2">Principais Artistas Minerados:</p><div class="flex flex-wrap gap-2">${artistsHtml}</div></div><hr class="border-zinc-700 mb-4">`;
-
-            tracks.slice(0, 20).forEach(track => {
-                let previewAudio = track.preview_url ? `<audio controls src="${track.preview_url}" class="h-8 w-full mt-1"></audio>` : `<span class="text-xs text-red-400">Sem preview de áudio</span>`;
-                let imageUrl = (track.album && track.album.images && track.album.images.length > 0) ? track.album.images[0].url : '';
-                
-                listEl.innerHTML += `
-                    <div class="mb-3 flex items-center gap-3">
-                        ${imageUrl ? `<img src="${imageUrl}" class="w-10 h-10 rounded">` : '<div class="w-10 h-10 bg-zinc-700 rounded"></div>'}
-                        <div class="flex-1 min-w-0">
-                            <p class="text-sm font-bold truncate">${track.name}</p>
-                            <p class="text-xs text-zinc-400 truncate">${track.artists[0].name}</p>
-                            ${previewAudio}
-                        </div>
-                    </div>
-                `;
-            });
-            if(tracks.length > 20) listEl.innerHTML += `<p class="text-center text-sm text-zinc-500 mt-4">... e mais ${tracks.length - 20} faixas ocultas no preview.</p>`;
-        }
-
-        function cancelarPreview() {
-            document.getElementById('preview-section').classList.add('hidden');
-            document.getElementById('form-container').classList.remove('hidden');
-            tracksToInject = [];
-        }
-
-        async function confirmarEInjetar() {
-            if (tracksToInject.length === 0) return alert("Nenhuma faixa para injetar!");
-            
-            let playlistId = '';
-            
-            if (currentMode === 'new') {
-                setStatus("Criando a nova playlist no seu perfil...");
-                const plName = document.getElementById('playlist-name').value.trim() || 'Gerador Indie Rock';
-                
-                const resPl = await apiCall(`/me/playlists`, 'POST', {
-                    name: plName,
-                    description: "Criada via Script.",
-                    public: false
-                });
-
-                if(!resPl || !resPl.id) {
-                    setStatus("Falha na criação da playlist. Verifique se o token tem permissões.", true);
-                    return;
-                }
-                playlistId = resPl.id;
-            } else {
-                playlistId = document.getElementById('playlist-select').value;
-            }
-
-            setStatus("Injetando as faixas no Spotify...");
-            
-            const chunkSize = 100;
-            for (let i = 0; i < tracksToInject.length; i += chunkSize) {
-                const chunk = tracksToInject.slice(i, i + chunkSize);
-                const urisParams = chunk.join(',');
-                
-                await apiCall(`/playlists/${playlistId}/items?uris=${urisParams}`, 'POST');
-                
-                setStatus(`Injetando: ${Math.min(i + chunkSize, tracksToInject.length)} / ${tracksToInject.length} músicas...`);
-                await sleep(500); 
-            }
-
-            document.getElementById('status-msg').classList.replace('text-zinc-400', 'text-green-500');
-            setStatus("Sucesso absoluto! A playlist gigante está pronta na sua conta.");
-        }
-    </script>
+window.addEventListener('load', inicializarOAuth);
+</script>
 </body>
 </html>
