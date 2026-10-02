@@ -12,7 +12,7 @@
 </head>
 <body class="bg-zinc-900 text-white min-h-screen font-sans">
 
-    <!-- Tela de Login -->
+    <!-- Ecrã de Início de Sessão -->
     <div id="login-section" class="flex flex-col items-center justify-center min-h-screen p-4 space-y-6">
         <h1 class="text-4xl font-bold text-center">Gerador de Playlist Massiva</h1>
         <p class="text-zinc-400 text-center max-w-md">Crie ou incremente playlists gigantescas no seu Spotify. Ideal para discografias Indie Rock.</p>
@@ -21,7 +21,7 @@
         </button>
     </div>
 
-    <!-- Tela Principal da Aplicação -->
+    <!-- Ecrã Principal da Aplicação -->
     <div id="app-section" class="hidden max-w-4xl mx-auto p-6 pt-12">
         
         <!-- Cabeçalho -->
@@ -33,7 +33,7 @@
             </div>
         </div>
 
-        <!-- Abas -->
+        <!-- Separadores -->
         <div class="flex mb-6 border-b border-zinc-700">
             <button id="tab-new" onclick="switchTab('new')" class="pb-2 px-4 tab-active font-semibold">Criar Nova Playlist</button>
             <button id="tab-inc" onclick="switchTab('inc')" class="pb-2 px-4 tab-inactive font-semibold hover:text-white transition">Incrementar Existente</button>
@@ -70,7 +70,7 @@
             </button>
         </div>
 
-        <!-- Tela de Preview -->
+        <!-- Ecrã de Pré-visualização -->
         <div id="preview-section" class="hidden bg-zinc-800 p-6 rounded-xl shadow-lg mt-6">
             <h3 class="text-xl font-bold mb-2">Preview da Geração</h3>
             <p id="preview-stats" class="text-zinc-400 mb-4">Analisando faixas...</p>
@@ -165,7 +165,7 @@
             else if (accessToken) iniciarApp();
         };
 
-        // --- SISTEMA DE REGISTRO DE ERROS (CONSOLE) ---
+        // --- SISTEMA DE REGISTRO DE ERROS (CONSOLA) ---
         async function apiCall(endpoint, method = 'GET', body = null) {
             const url = `https://api.spotify.com/v1${endpoint}`;
             
@@ -270,10 +270,10 @@
             el.innerText = msg;
         }
 
-        // --- LÓGICA DE VARREDURA CORRIGIDA ---
+        // --- LÓGICA DE VARREDURA CORRIGIDA (LIMIT=20) ---
         async function gerarPreview() {
             setStatus("Iniciando varredura na API do Spotify...");
-            // Alterado o nome da variável para não conflitar mentalmente ou no código com o 'limit' da API
+            
             const metaTotal = parseInt(document.getElementById('track-limit').value) || 100;
             const queryRaw = document.getElementById('genre-seed').value.trim();
             const queryEncoded = encodeURIComponent(queryRaw);
@@ -306,12 +306,12 @@
             let foundTracks = [];
             let artistCounts = {};
             
-            // O loop verifica se ainda não atingimos a metaTotal, varrendo no máximo 1000 resultados permitidos pelo Spotify
-            for(let offset = 0; offset < 1000 && foundTracks.length < metaTotal; offset += 50) {
+            // O loop agora utiliza blocos seguros de 20 resultados
+            for(let offset = 0; offset < 1000 && foundTracks.length < metaTotal; offset += 20) {
                 console.log(`Puxando lote de músicas... Offset atual: ${offset}`);
                 
-                // O limite (limit) da API foi blindado em 50. Ele NUNCA recebe a variável metaTotal.
-                const searchRes = await apiCall(`/search?q=${queryEncoded}&type=track&limit=50&offset=${offset}`);
+                // Limite forçado em 20 para evitar o erro 400 Bad Request
+                const searchRes = await apiCall(`/search?q=${queryEncoded}&type=track&limit=20&offset=${offset}`);
                 
                 if (searchRes && searchRes.error) {
                     console.error("A busca foi interrompida devido a um erro retornado pelo Spotify.");
