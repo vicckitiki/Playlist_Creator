@@ -204,7 +204,7 @@
          *  CONFIGURAÇÕES OBRIGATÓRIAS DO SPOTIFY API
          *  Substitua pelos valores do seu Dashboard do Spotify.
          * ========================================================================= */
-        const SPOTIFY_CLIENT_ID = 'SUA_CLIENT_ID_AQUI'; // EX: 'a1b2c3d4e5...'
+        const SPOTIFY_CLIENT_ID = '5682ad86f0e645c183a9fdd721d6768d'; // EX: 'a1b2c3d4e5...'
         const REDIRECT_URI = window.location.href.split('#')[0].split('?')[0]; // Pega a URL atual dinamicamente
         
         // Scope de permissões requeridas (criar, ler e modificar playlists)
@@ -250,7 +250,7 @@
          *  AUTENTICAÇÃO & FLUXO OAUTH 2.0
          * ========================================================================= */
         function loginWithSpotify() {
-            if (SPOTIFY_CLIENT_ID === 'SUA_CLIENT_ID_AQUI') {
+            if (SPOTIFY_CLIENT_ID === '5682ad86f0e645c183a9fdd721d6768d') {
                 showToast("Erro: Configure o SPOTIFY_CLIENT_ID no código fonte primeiro!", "error");
                 return;
             }
