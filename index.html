@@ -125,7 +125,8 @@
                 redirect_uri: REDIRECT_URI,
                 scope: 'playlist-modify-public playlist-modify-private playlist-read-private user-read-private',
                 code_challenge_method: 'S256',
-                code_challenge: codeChallenge
+                code_challenge: codeChallenge,
+                show_dialog: 'true'
             });
 
             window.location.href = `https://accounts.spotify.com/authorize?${params.toString()}`;
