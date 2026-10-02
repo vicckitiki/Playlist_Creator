@@ -23,9 +23,14 @@
 
     <!-- Tela Principal da Aplicação -->
     <div id="app-section" class="hidden max-w-4xl mx-auto p-6 pt-12">
+        
+        <!-- Cabeçalho com Nome do Usuário -->
         <div class="flex justify-between items-center mb-8">
             <h2 class="text-3xl font-bold">Painel de Geração</h2>
-            <button onclick="logout()" class="text-sm text-zinc-400 hover:text-white border border-zinc-600 px-4 py-2 rounded-full">Sair</button>
+            <div class="flex items-center space-x-4">
+                <span id="user-name" class="text-zinc-300 font-medium text-sm">Carregando perfil...</span>
+                <button onclick="logout()" class="text-sm text-zinc-400 hover:text-white border border-zinc-600 px-4 py-2 rounded-full transition">Sair</button>
+            </div>
         </div>
 
         <!-- Abas -->
@@ -51,7 +56,8 @@
 
             <div>
                 <label class="block text-sm text-zinc-400 mb-1">Gênero / Estilo (Semente)</label>
-                <input type="text" id="genre-seed" class="w-full bg-zinc-700 rounded p-3 text-white focus:outline-none focus:ring-2 focus:ring-green-500" value="indie rock, arctic monkeys">
+                <input type="text" id="genre-seed" class="w-full bg-zinc-700 rounded p-3 text-white focus:outline-none focus:ring-2 focus:ring-green-500" value="genre:indie rock">
+                <p class="text-xs text-zinc-500 mt-1">Dica: Use <strong>genre:nome_do_genero</strong> ou <strong>artist:nome_do_artista</strong>. O Spotify falha se a busca for confusa.</p>
             </div>
 
             <div>
@@ -93,8 +99,8 @@
         
         let accessToken = localStorage.getItem('access_token');
         let userId = '';
-        let currentMode = 'new'; // 'new' ou 'inc'
-        let tracksToInject = []; // URIs das músicas após a varredura
+        let currentMode = 'new';
+        let tracksToInject = []; 
 
         // --- SISTEMA DE LOGIN PKCE ---
         function generateRandomString(length) {
@@ -154,7 +160,6 @@
             window.location.reload();
         }
 
-        // --- INICIALIZAÇÃO E UI ---
         window.onload = () => {
             const urlParams = new URLSearchParams(window.location.search);
             const code = urlParams.get('code');
@@ -166,28 +171,64 @@
             }
         };
 
+        // --- SISTEMA DE LOGS INVISÍVEIS PARA DETECÇÃO DE ERROS ---
         async function apiCall(endpoint, method = 'GET', body = null) {
+            const url = `https://api.spotify.com/v1${endpoint}`;
+            
+            console.groupCollapsed(`[Spotify API] ${method} ${endpoint.split('?')[0]}`);
+            console.log("URL de Chamada:", url);
+            if (body) console.log("Dados Enviados:", body);
+
             const options = {
                 method: method,
-                headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json' }
+                headers: { 
+                    'Authorization': `Bearer ${accessToken}`, 
+                    'Content-Type': 'application/json' 
+                }
             };
             if (body) options.body = JSON.stringify(body);
             
-            const response = await fetch(`https://api.spotify.com/v1${endpoint}`, options);
-            if (response.status === 401) { logout(); return; } // Token expirado
-            if (method === 'GET' || response.status === 201 || response.status === 200) {
-                return response.json().catch(() => ({}));
+            try {
+                const response = await fetch(url, options);
+                console.log("Status HTTP:", response.status);
+                
+                if (response.status === 401) { 
+                    console.error("ERRO: Token expirado. Forçando logout.");
+                    console.groupEnd();
+                    logout(); 
+                    return null; 
+                }
+                
+                const data = await response.json().catch(() => null);
+                
+                if (!response.ok) {
+                    const errorMessage = data && data.error ? data.error.message : "Erro desconhecido da API";
+                    console.error(`ERRO DETALHADO DO SPOTIFY: ${errorMessage}`);
+                } else {
+                    console.log("Resposta Efetuada com Sucesso:", data);
+                }
+                
+                console.groupEnd();
+                return data; 
+                
+            } catch (error) {
+                console.error("FALHA CRÍTICA NA REQUISIÇÃO (Rede/CORS):", error);
+                console.groupEnd();
+                return null;
             }
-            return null;
         }
 
+        // --- INICIALIZAÇÃO DA INTERFACE ---
         async function iniciarApp() {
             document.getElementById('login-section').classList.add('hidden');
             document.getElementById('app-section').classList.remove('hidden');
             
-            // Pegar ID do usuário
             const userData = await apiCall('/me');
-            if (userData) userId = userData.id;
+            if (userData) {
+                userId = userData.id;
+                const userNameDisplay = userData.display_name || userData.id;
+                document.getElementById('user-name').innerText = `Olá, ${userNameDisplay}`;
+            }
 
             carregarPlaylists();
         }
@@ -218,7 +259,7 @@
             select.innerHTML = '';
             if (data && data.items) {
                 data.items.forEach(pl => {
-                    if(pl.owner.id === userId) { // Apenas playlists que o usuário pode editar
+                    if(pl.owner.id === userId) {
                         const option = document.createElement('option');
                         option.value = pl.id;
                         option.text = `${pl.name} (${pl.tracks.total} músicas)`;
@@ -228,7 +269,6 @@
             }
         }
 
-        // --- LÓGICA CORE: VARREDURA E DEDUPLICAÇÃO ---
         function setStatus(msg, isError = false) {
             const el = document.getElementById('status-msg');
             el.classList.remove('hidden', 'text-red-500', 'text-green-500', 'text-zinc-400');
@@ -236,47 +276,74 @@
             el.innerText = msg;
         }
 
+        // --- LÓGICA DE VARREDURA COM LOGS ---
         async function gerarPreview() {
             setStatus("Iniciando varredura na API do Spotify...");
             const limit = parseInt(document.getElementById('track-limit').value) || 100;
-            const query = document.getElementById('genre-seed').value;
+            const queryRaw = document.getElementById('genre-seed').value.trim();
+            const queryEncoded = encodeURIComponent(queryRaw);
+            
             let existingUris = new Set();
+
+            console.log(`--- INICIANDO GERAÇÃO --- Meta de ${limit} músicas. Busca por: "${queryRaw}"`);
 
             if (currentMode === 'inc') {
                 const playlistId = document.getElementById('playlist-select').value;
                 if (!playlistId) return setStatus("Selecione uma playlist!", true);
                 setStatus("Lendo músicas já existentes na sua playlist para evitar duplicatas...");
                 
-                // Paginação para pegar todas as músicas da playlist existente (deduplicação)
                 let url = `/playlists/${playlistId}/tracks?fields=next,items(track(uri))&limit=100`;
+                let pageCount = 1;
                 while (url) {
+                    console.log(`Lendo página ${pageCount} da playlist existente...`);
                     const res = await apiCall(url.replace('https://api.spotify.com/v1', ''));
                     if (res && res.items) {
                         res.items.forEach(item => { if(item.track) existingUris.add(item.track.uri) });
                         url = res.next;
-                    } else url = null;
+                        pageCount++;
+                    } else {
+                        url = null;
+                    }
                 }
+                console.log(`Mapeamento concluído. ${existingUris.size} músicas já constam na playlist original.`);
             }
 
-            setStatus(`Buscando recomendações para: ${query}...`);
-            // Simulação de varredura (Spotify Search API) - Em um app real, aqui entraria paginação complexa.
-            // Para exemplo prático, vamos fazer buscas deslocadas (offset) para pegar volume.
+            setStatus(`Buscando recomendações no catálogo do Spotify...`);
             let foundTracks = [];
             let artistCounts = {};
             
             for(let offset = 0; offset < 1000 && foundTracks.length < limit; offset += 50) {
-                const searchRes = await apiCall(`/search?q=${encodeURIComponent(query)}&type=track&limit=50&offset=${offset}`);
-                if (!searchRes || !searchRes.tracks || searchRes.tracks.items.length === 0) break;
+                console.log(`Puxando lote de músicas da pesquisa... Offset atual: ${offset}`);
+                const searchRes = await apiCall(`/search?q=${queryEncoded}&type=track&limit=50&offset=${offset}`);
+                
+                if (searchRes && searchRes.error) {
+                    console.error("A busca foi interrompida devido a um erro retornado pelo Spotify. Verifique os logs das chamadas de API.");
+                    setStatus("A busca falhou devido a uma formatação errada. Pressione F12 e olhe o Console.", true);
+                    break; 
+                }
+
+                if (!searchRes || !searchRes.tracks || searchRes.tracks.items.length === 0) {
+                    console.warn(`Nenhuma música encontrada no offset ${offset}. A pesquisa esgotou os resultados para esta palavra.`);
+                    break;
+                }
 
                 searchRes.tracks.items.forEach(track => {
                     if (!existingUris.has(track.uri) && foundTracks.length < limit) {
                         foundTracks.push(track);
-                        existingUris.add(track.uri); // Evitar duplicata na própria busca
+                        existingUris.add(track.uri);
                         
                         let artistName = track.artists[0].name;
                         artistCounts[artistName] = (artistCounts[artistName] || 0) + 1;
                     }
                 });
+                console.log(`Faixas válidas e não-duplicadas acumuladas até o momento: ${foundTracks.length}`);
+            }
+
+            console.log(`--- GERAÇÃO CONCLUÍDA --- Total de faixas prontas para o preview: ${foundTracks.length}`);
+            
+            if (foundTracks.length === 0) {
+                setStatus("Zero faixas encontradas! A API do Spotify não encontrou resultados. Tente usar apenas 'genre:indie rock'.", true);
+                return;
             }
 
             tracksToInject = foundTracks.map(t => t.uri);
@@ -294,9 +361,8 @@
             const listEl = document.getElementById('preview-list');
             listEl.innerHTML = '';
 
-            // Mostrar Artistas Encontrados
             const artistsHtml = Object.entries(artistCounts)
-                .sort((a, b) => b[1] - a[1]) // Ordenar por quem tem mais músicas
+                .sort((a, b) => b[1] - a[1])
                 .slice(0, 10)
                 .map(entry => `<span class="bg-zinc-800 px-2 py-1 rounded text-xs border border-zinc-600">${entry[0]}: ${entry[1]}</span>`)
                 .join(' ');
@@ -304,13 +370,12 @@
             listEl.innerHTML += `<div class="mb-4"><p class="text-sm text-zinc-400 mb-2">Principais Artistas Minerados:</p><div class="flex flex-wrap gap-2">${artistsHtml}</div></div>`;
             listEl.innerHTML += `<hr class="border-zinc-700 mb-4">`;
 
-            // Mostrar algumas faixas de exemplo
             tracks.slice(0, 20).forEach(track => {
-                let previewAudio = track.preview_url ? `<audio controls src="${track.preview_url}" class="h-8 w-full mt-1"></audio>` : `<span class="text-xs text-red-400">Sem preview de áudio</span>`;
+                let previewAudio = track.preview_url ? `<audio controls src="${track.preview_url}" class="h-8 w-full mt-1"></audio>` : `<span class="text-xs text-red-400">Sem preview de áudio grátis</span>`;
                 listEl.innerHTML += `
                     <div class="mb-3 flex items-center gap-3">
                         ${track.album.images[0] ? `<img src="${track.album.images[0].url}" class="w-10 h-10 rounded">` : ''}
-                        <div class="flex-1">
+                        <div class="flex-1 min-w-0">
                             <p class="text-sm font-bold truncate">${track.name}</p>
                             <p class="text-xs text-zinc-400 truncate">${track.artists[0].name}</p>
                             ${previewAudio}
@@ -319,7 +384,7 @@
                 `;
             });
             if(tracks.length > 20) {
-                listEl.innerHTML += `<p class="text-center text-sm text-zinc-500 mt-4">... e mais ${tracks.length - 20} faixas.</p>`;
+                listEl.innerHTML += `<p class="text-center text-sm text-zinc-500 mt-4">... e mais ${tracks.length - 20} faixas ocultas neste preview.</p>`;
             }
         }
 
@@ -336,22 +401,21 @@
             let playlistId = '';
             
             if (currentMode === 'new') {
-                setStatus("Criando nova playlist no seu perfil...");
+                setStatus("Criando a nova playlist vazia no seu perfil...");
                 const plName = document.getElementById('playlist-name').value || 'Gerador Indie Rock';
                 const resPl = await apiCall(`/users/${userId}/playlists`, 'POST', {
                     name: plName,
                     description: "Gerada automaticamente via Script - Indie Rock",
                     public: false
                 });
-                if(!resPl) return setStatus("Erro ao criar playlist.", true);
+                if(!resPl) return setStatus("Falha na criação da playlist. Cheque o F12.", true);
                 playlistId = resPl.id;
             } else {
                 playlistId = document.getElementById('playlist-select').value;
             }
 
-            setStatus("Injetando faixas no Spotify em lotes de 100...");
+            setStatus("Injetando as faixas no Spotify em lotes de 100 músicas...");
             
-            // O Spotify só aceita 100 URIs por request POST
             const chunkSize = 100;
             for (let i = 0; i < tracksToInject.length; i += chunkSize) {
                 const chunk = tracksToInject.slice(i, i + chunkSize);
@@ -360,8 +424,8 @@
             }
 
             document.getElementById('status-msg').classList.replace('text-zinc-400', 'text-green-500');
-            setStatus("Sucesso absoluto! A playlist está pronta no seu Spotify.");
-            setTimeout(() => { window.location.reload(); }, 3000);
+            setStatus("Sucesso absoluto! A playlist foi carregada com sucesso na sua conta do Spotify.");
+            setTimeout(() => { window.location.reload(); }, 4000);
         }
     </script>
 </body>
