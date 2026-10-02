@@ -12,19 +12,18 @@
 </head>
 <body class="bg-zinc-900 text-white min-h-screen font-sans">
 
-    <!-- Ecrã de Início de Sessão -->
+    <!-- Tela de Login -->
     <div id="login-section" class="flex flex-col items-center justify-center min-h-screen p-4 space-y-6">
         <h1 class="text-4xl font-bold text-center">Gerador de Playlist Massiva</h1>
-        <p class="text-zinc-400 text-center max-w-md">Crie ou incremente playlists gigantescas no seu Spotify. Ideal para discografias Indie Rock.</p>
+        <p class="text-zinc-400 text-center max-w-md">Crie ou incremente playlists gigantescas no seu Spotify usando extração profunda de discografias.</p>
         <button onclick="loginComPKCE()" class="bg-green-500 hover:bg-green-400 text-black font-bold py-3 px-8 rounded-full transition shadow-lg">
             Conectar com o Spotify
         </button>
     </div>
 
-    <!-- Ecrã Principal da Aplicação -->
+    <!-- Tela Principal da Aplicação -->
     <div id="app-section" class="hidden max-w-4xl mx-auto p-6 pt-12">
         
-        <!-- Cabeçalho -->
         <div class="flex justify-between items-center mb-8">
             <h2 class="text-3xl font-bold">Painel de Geração</h2>
             <div class="flex items-center space-x-4">
@@ -33,18 +32,16 @@
             </div>
         </div>
 
-        <!-- Separadores -->
         <div class="flex mb-6 border-b border-zinc-700">
             <button id="tab-new" onclick="switchTab('new')" class="pb-2 px-4 tab-active font-semibold">Criar Nova Playlist</button>
             <button id="tab-inc" onclick="switchTab('inc')" class="pb-2 px-4 tab-inactive font-semibold hover:text-white transition">Incrementar Existente</button>
         </div>
 
-        <!-- Formulário -->
         <div id="form-container" class="bg-zinc-800 p-6 rounded-xl shadow-lg space-y-5">
             
             <div id="new-playlist-fields">
                 <label class="block text-sm text-zinc-400 mb-1">Nome da Nova Playlist</label>
-                <input type="text" id="playlist-name" class="w-full bg-zinc-700 rounded p-3 text-white focus:outline-none focus:ring-2 focus:ring-green-500" placeholder="Ex: Indie Rock 300 Horas">
+                <input type="text" id="playlist-name" class="w-full bg-zinc-700 rounded p-3 text-white focus:outline-none focus:ring-2 focus:ring-green-500" placeholder="Ex: Indie Rock Gigante">
             </div>
 
             <div id="inc-playlist-fields" class="hidden">
@@ -55,14 +52,13 @@
             </div>
 
             <div>
-                <label class="block text-sm text-zinc-400 mb-1">Gênero / Estilo (Semente)</label>
-                <input type="text" id="genre-seed" class="w-full bg-zinc-700 rounded p-3 text-white focus:outline-none focus:ring-2 focus:ring-green-500" value="genre:indie rock">
-                <p class="text-xs text-zinc-500 mt-1">Dica: Use <strong>genre:nome_do_genero</strong> ou <strong>artist:nome_do_artista</strong>.</p>
+                <label class="block text-sm text-zinc-400 mb-1">Gênero, Tema ou Artista (Semente)</label>
+                <input type="text" id="genre-seed" class="w-full bg-zinc-700 rounded p-3 text-white focus:outline-none focus:ring-2 focus:ring-green-500" value="indie rock">
             </div>
 
             <div>
                 <label class="block text-sm text-zinc-400 mb-1">Quantidade de Músicas a Buscar</label>
-                <input type="number" id="track-limit" class="w-full bg-zinc-700 rounded p-3 text-white focus:outline-none focus:ring-2 focus:ring-green-500" value="1000" max="5000">
+                <input type="number" id="track-limit" class="w-full bg-zinc-700 rounded p-3 text-white focus:outline-none focus:ring-2 focus:ring-green-500" value="300" max="10000">
             </div>
 
             <button onclick="gerarPreview()" class="w-full bg-green-500 hover:bg-green-400 text-black font-bold py-4 rounded-full mt-2 transition text-lg">
@@ -70,7 +66,7 @@
             </button>
         </div>
 
-        <!-- Ecrã de Pré-visualização -->
+        <!-- Tela de Preview -->
         <div id="preview-section" class="hidden bg-zinc-800 p-6 rounded-xl shadow-lg mt-6">
             <h3 class="text-xl font-bold mb-2">Preview da Geração</h3>
             <p id="preview-stats" class="text-zinc-400 mb-4">Analisando faixas...</p>
@@ -91,7 +87,7 @@
     </div>
 
     <script>
-        // CONFIGURAÇÕES DO APLICATIVO
+        // CONFIGURAÇÕES
         const CLIENT_ID = '5682ad86f0e645c183a9fdd721d6768d';
         const REDIRECT_URI = 'https://vicckitiki.github.io/Playlist_Creator/';
         
@@ -100,7 +96,9 @@
         let currentMode = 'new';
         let tracksToInject = []; 
 
-        // --- SISTEMA DE LOGIN PKCE ---
+        const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+        // --- PKCE LOGIN ---
         function generateRandomString(length) {
             const possible = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
             const values = crypto.getRandomValues(new Uint8Array(length));
@@ -110,7 +108,10 @@
         async function generateCodeChallenge(codeVerifier) {
             const data = new TextEncoder().encode(codeVerifier);
             const digest = await window.crypto.subtle.digest('SHA-256', data);
-            return btoa(String.fromCharCode.apply(null, [...new Uint8Array(digest)])).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+            return btoa(String.fromCharCode.apply(null, [...new Uint8Array(digest)]))
+                .replace(/\+/g, '-')
+                .replace(/\//g, '_')
+                .replace(/=+$/, '');
         }
 
         async function loginComPKCE() {
@@ -165,14 +166,10 @@
             else if (accessToken) iniciarApp();
         };
 
-        // --- SISTEMA DE REGISTRO DE ERROS (CONSOLA) ---
+        // --- SISTEMA DE API E LOGS ---
         async function apiCall(endpoint, method = 'GET', body = null) {
             const url = `https://api.spotify.com/v1${endpoint}`;
             
-            console.groupCollapsed(`[Spotify API] ${method} ${endpoint.split('?')[0]}`);
-            console.log("URL de Chamada:", url);
-            if (body) console.log("Dados Enviados:", body);
-
             const options = {
                 method: method,
                 headers: { 
@@ -184,35 +181,26 @@
             
             try {
                 const response = await fetch(url, options);
-                console.log("Status HTTP:", response.status);
                 
                 if (response.status === 401) { 
-                    console.error("ERRO: Token expirado. Forçando logout.");
-                    console.groupEnd();
                     logout(); 
                     return null; 
                 }
-                
-                const data = await response.json().catch(() => null);
-                
-                if (!response.ok) {
-                    const errorMessage = data && data.error ? data.error.message : "Erro desconhecido da API";
-                    console.error(`ERRO DETALHADO DO SPOTIFY: ${errorMessage}`);
-                } else {
-                    console.log("Resposta Efetuada com Sucesso:", data);
+                if (response.status === 429) {
+                    console.warn("Spotify Rate Limit atingido! Esperando 3 segundos...");
+                    await sleep(3000);
+                    return apiCall(endpoint, method, body); // Tenta novamente
                 }
                 
-                console.groupEnd();
+                const data = await response.json().catch(() => null);
                 return data; 
                 
             } catch (error) {
-                console.error("FALHA CRÍTICA NA REQUISIÇÃO (Rede/CORS):", error);
-                console.groupEnd();
+                console.error("FALHA NA REQUISIÇÃO:", error);
                 return null;
             }
         }
 
-        // --- INICIALIZAÇÃO DA INTERFACE ---
         async function iniciarApp() {
             document.getElementById('login-section').classList.add('hidden');
             document.getElementById('app-section').classList.remove('hidden');
@@ -220,8 +208,7 @@
             const userData = await apiCall('/me');
             if (userData) {
                 userId = userData.id;
-                const userNameDisplay = userData.display_name || userData.id;
-                document.getElementById('user-name').innerText = `Olá, ${userNameDisplay}`;
+                document.getElementById('user-name').innerText = `Olá, ${userData.display_name || userData.id}`;
             }
             carregarPlaylists();
         }
@@ -270,78 +257,88 @@
             el.innerText = msg;
         }
 
-        // --- LÓGICA DE VARREDURA CORRIGIDA (LIMIT=20) ---
+        // --- LÓGICA DE VARREDURA PROFUNDA (BASEADA NO PYTHON) ---
         async function gerarPreview() {
-            setStatus("Iniciando varredura na API do Spotify...");
-            
-            const metaTotal = parseInt(document.getElementById('track-limit').value) || 100;
+            const metaTotal = parseInt(document.getElementById('track-limit').value) || 300;
             const queryRaw = document.getElementById('genre-seed').value.trim();
             const queryEncoded = encodeURIComponent(queryRaw);
             
             let existingUris = new Set();
-            console.log(`--- INICIANDO GERAÇÃO --- Meta de ${metaTotal} músicas. Busca por: "${queryRaw}"`);
+            console.log(`--- INICIANDO GERAÇÃO --- Meta: ${metaTotal} músicas.`);
 
             if (currentMode === 'inc') {
                 const playlistId = document.getElementById('playlist-select').value;
                 if (!playlistId) return setStatus("Selecione uma playlist!", true);
-                setStatus("Lendo músicas já existentes na sua playlist para evitar duplicatas...");
                 
+                setStatus("Lendo músicas da sua playlist para evitar duplicatas...");
                 let url = `/playlists/${playlistId}/tracks?fields=next,items(track(uri))&limit=100`;
-                let pageCount = 1;
                 while (url) {
-                    console.log(`Lendo página ${pageCount} da playlist existente...`);
                     const res = await apiCall(url.replace('https://api.spotify.com/v1', ''));
                     if (res && res.items) {
                         res.items.forEach(item => { if(item && item.track) existingUris.add(item.track.uri) });
                         url = res.next;
-                        pageCount++;
                     } else {
                         url = null;
                     }
                 }
-                console.log(`Mapeamento concluído. ${existingUris.size} músicas já constam na playlist original.`);
             }
 
-            setStatus(`Buscando recomendações no catálogo do Spotify...`);
+            // ETAPA 1: MAPEAR ARTISTAS (limit=10 e offset step 10)
+            setStatus(`Mapeando artistas relacionados a '${queryRaw}'...`);
+            let artistIds = new Set();
+            
+            for(let offset = 0; offset < 200; offset += 10) {
+                const searchRes = await apiCall(`/search?q=${queryEncoded}&type=track&limit=10&offset=${offset}`);
+                if (!searchRes || !searchRes.tracks || searchRes.tracks.items.length === 0) break;
+
+                searchRes.tracks.items.forEach(track => {
+                    if (track.artists) track.artists.forEach(a => artistIds.add(a.id));
+                });
+                await sleep(200); // Pausa para segurança da API
+            }
+
+            if (artistIds.size === 0) {
+                return setStatus("Nenhum artista encontrado. Tente um termo mais comum.", true);
+            }
+
+            // ETAPA 2: EXTRAIR DISCOGRAFIAS DOS ARTISTAS
+            setStatus(`Mapeados ${artistIds.size} artistas! Extraindo discografias (limit=10)...`);
             let foundTracks = [];
             let artistCounts = {};
             
-            // O loop agora utiliza blocos seguros de 20 resultados
-            for(let offset = 0; offset < 1000 && foundTracks.length < metaTotal; offset += 20) {
-                console.log(`Puxando lote de músicas... Offset atual: ${offset}`);
-                
-                // Limite forçado em 20 para evitar o erro 400 Bad Request
-                const searchRes = await apiCall(`/search?q=${queryEncoded}&type=track&limit=20&offset=${offset}`);
-                
-                if (searchRes && searchRes.error) {
-                    console.error("A busca foi interrompida devido a um erro retornado pelo Spotify.");
-                    setStatus("A busca falhou. Pressione F12 e olhe o Console.", true);
-                    break; 
-                }
+            for (let a_id of artistIds) {
+                if (foundTracks.length >= metaTotal) break;
 
-                if (!searchRes || !searchRes.tracks || searchRes.tracks.items.length === 0) {
-                    console.warn(`Nenhuma música encontrada no offset ${offset}. A pesquisa esgotou os resultados.`);
-                    break;
-                }
+                const albumsRes = await apiCall(`/artists/${a_id}/albums?include_groups=album,single&limit=10`);
+                if (!albumsRes || !albumsRes.items) continue;
 
-                searchRes.tracks.items.forEach(track => {
-                    if (track && track.uri && !existingUris.has(track.uri) && foundTracks.length < metaTotal) {
-                        foundTracks.push(track);
-                        existingUris.add(track.uri);
-                        
-                        if(track.artists && track.artists.length > 0) {
+                for (let album of albumsRes.items) {
+                    if (foundTracks.length >= metaTotal) break;
+
+                    const tracksRes = await apiCall(`/albums/${album.id}/tracks?limit=10`);
+                    if (!tracksRes || !tracksRes.items) continue;
+
+                    for (let track of tracksRes.items) {
+                        if (foundTracks.length >= metaTotal) break;
+
+                        if (!existingUris.has(track.uri)) {
+                            // Endpoint de faixas de álbum não traz imagens; copiamos do próprio álbum
+                            track.album = { images: album.images };
+                            if (!track.artists || track.artists.length === 0) track.artists = [{name: "Desconhecido"}];
+
+                            foundTracks.push(track);
+                            existingUris.add(track.uri);
+                            
                             let artistName = track.artists[0].name;
                             artistCounts[artistName] = (artistCounts[artistName] || 0) + 1;
                         }
                     }
-                });
+                    await sleep(200); // Pausa para segurança da API
+                }
             }
 
-            console.log(`--- GERAÇÃO CONCLUÍDA --- Total de faixas prontas: ${foundTracks.length}`);
-            
             if (foundTracks.length === 0) {
-                setStatus("Zero faixas encontradas! Tente usar apenas 'genre:indie rock'.", true);
-                return;
+                return setStatus("Erro: Nenhuma música nova recolhida.", true);
             }
 
             tracksToInject = foundTracks.map(t => t.uri);
@@ -353,7 +350,7 @@
             document.getElementById('preview-section').classList.remove('hidden');
             setStatus("");
 
-            document.getElementById('preview-stats').innerText = `${tracks.length} novas faixas encontradas e validadas.`;
+            document.getElementById('preview-stats').innerText = `${tracks.length} novas faixas extraídas da discografia.`;
 
             const listEl = document.getElementById('preview-list');
             listEl.innerHTML = '';
@@ -368,9 +365,11 @@
 
             tracks.slice(0, 20).forEach(track => {
                 let previewAudio = track.preview_url ? `<audio controls src="${track.preview_url}" class="h-8 w-full mt-1"></audio>` : `<span class="text-xs text-red-400">Sem preview de áudio</span>`;
+                let imageUrl = (track.album && track.album.images && track.album.images.length > 0) ? track.album.images[0].url : '';
+                
                 listEl.innerHTML += `
                     <div class="mb-3 flex items-center gap-3">
-                        ${track.album.images[0] ? `<img src="${track.album.images[0].url}" class="w-10 h-10 rounded">` : ''}
+                        ${imageUrl ? `<img src="${imageUrl}" class="w-10 h-10 rounded">` : '<div class="w-10 h-10 bg-zinc-700 rounded"></div>'}
                         <div class="flex-1 min-w-0">
                             <p class="text-sm font-bold truncate">${track.name}</p>
                             <p class="text-xs text-zinc-400 truncate">${track.artists[0].name}</p>
@@ -379,7 +378,7 @@
                     </div>
                 `;
             });
-            if(tracks.length > 20) listEl.innerHTML += `<p class="text-center text-sm text-zinc-500 mt-4">... e mais ${tracks.length - 20} faixas ocultas.</p>`;
+            if(tracks.length > 20) listEl.innerHTML += `<p class="text-center text-sm text-zinc-500 mt-4">... e mais ${tracks.length - 20} faixas ocultas no preview.</p>`;
         }
 
         function cancelarPreview() {
@@ -399,10 +398,10 @@
                 const plName = document.getElementById('playlist-name').value || 'Gerador Indie Rock';
                 const resPl = await apiCall(`/users/${userId}/playlists`, 'POST', {
                     name: plName,
-                    description: "Gerada automaticamente via Script",
+                    description: "Criada via Script - Extração Profunda de Discografias.",
                     public: false
                 });
-                if(!resPl) return setStatus("Falha na criação da playlist. Verifique o Console (F12).", true);
+                if(!resPl) return setStatus("Falha na criação da playlist. Verifique o Console.", true);
                 playlistId = resPl.id;
             } else {
                 playlistId = document.getElementById('playlist-select').value;
@@ -415,10 +414,11 @@
                 const chunk = tracksToInject.slice(i, i + chunkSize);
                 await apiCall(`/playlists/${playlistId}/tracks`, 'POST', { uris: chunk });
                 setStatus(`Injetando: ${Math.min(i + chunkSize, tracksToInject.length)} / ${tracksToInject.length} músicas...`);
+                await sleep(500); // Pausa recomendada entre inserts
             }
 
             document.getElementById('status-msg').classList.replace('text-zinc-400', 'text-green-500');
-            setStatus("Sucesso absoluto! A playlist foi carregada com sucesso na sua conta do Spotify.");
+            setStatus("Sucesso absoluto! A playlist gigante está pronta na sua conta.");
             setTimeout(() => { window.location.reload(); }, 4000);
         }
     </script>
