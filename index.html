@@ -270,15 +270,16 @@
             el.innerText = msg;
         }
 
-        // --- LÓGICA DE VARREDURA E PESQUISA ---
+        // --- LÓGICA DE VARREDURA CORRIGIDA ---
         async function gerarPreview() {
             setStatus("Iniciando varredura na API do Spotify...");
-            const limit = parseInt(document.getElementById('track-limit').value) || 100;
+            // Alterado o nome da variável para não conflitar mentalmente ou no código com o 'limit' da API
+            const metaTotal = parseInt(document.getElementById('track-limit').value) || 100;
             const queryRaw = document.getElementById('genre-seed').value.trim();
             const queryEncoded = encodeURIComponent(queryRaw);
             
             let existingUris = new Set();
-            console.log(`--- INICIANDO GERAÇÃO --- Meta de ${limit} músicas. Busca por: "${queryRaw}"`);
+            console.log(`--- INICIANDO GERAÇÃO --- Meta de ${metaTotal} músicas. Busca por: "${queryRaw}"`);
 
             if (currentMode === 'inc') {
                 const playlistId = document.getElementById('playlist-select').value;
@@ -305,9 +306,12 @@
             let foundTracks = [];
             let artistCounts = {};
             
-            for(let offset = 0; offset < 1000 && foundTracks.length < limit; offset += 20) {
-                console.log(`Puxando lote de músicas da pesquisa... Offset atual: ${offset}`);
-                const searchRes = await apiCall(`/search?q=${queryEncoded}&type=track&limit=20&offset=${offset}`);
+            // O loop verifica se ainda não atingimos a metaTotal, varrendo no máximo 1000 resultados permitidos pelo Spotify
+            for(let offset = 0; offset < 1000 && foundTracks.length < metaTotal; offset += 50) {
+                console.log(`Puxando lote de músicas... Offset atual: ${offset}`);
+                
+                // O limite (limit) da API foi blindado em 50. Ele NUNCA recebe a variável metaTotal.
+                const searchRes = await apiCall(`/search?q=${queryEncoded}&type=track&limit=50&offset=${offset}`);
                 
                 if (searchRes && searchRes.error) {
                     console.error("A busca foi interrompida devido a um erro retornado pelo Spotify.");
@@ -321,7 +325,7 @@
                 }
 
                 searchRes.tracks.items.forEach(track => {
-                    if (track && track.uri && !existingUris.has(track.uri) && foundTracks.length < limit) {
+                    if (track && track.uri && !existingUris.has(track.uri) && foundTracks.length < metaTotal) {
                         foundTracks.push(track);
                         existingUris.add(track.uri);
                         
