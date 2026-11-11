@@ -8,7 +8,7 @@ Aplicativo web para criar e organizar playlists grandes no Spotify. Roda inteiro
 
 - **Criar nova playlist** a partir de um gênero ou artista.
 - **Adicionar a uma playlist existente**, ignorando músicas que ela já tem (inclusive versões diferentes da mesma música).
-- **Mesclar playlists**: compara duas playlists e adiciona só o que falta, salvando na playlist 1, na playlist 2 ou em uma nova.
+- **Mesclar playlists**: compara duas playlists e adiciona só o que falta, salvando na playlist 1, na playlist 2 ou em uma nova. A playlist 2 também pode ser informada por link.
 - **Preview antes de salvar**, para conferir o resultado.
 
 ## Tipos de busca
@@ -63,6 +63,7 @@ Não há backend. O token de acesso fica apenas no `localStorage` do seu navegad
 ## Limitações
 
 - Só aparecem e podem ser alteradas playlists **que são suas**.
+- O link da playlist 2 só funciona para playlists suas ou colaborativas: o Spotify bloqueia a leitura das músicas de playlists de outras pessoas.
 - O Spotify limita a busca a 10 resultados por requisição e impõe cota de requisições a apps em Development Mode. Buscas muito grandes podem retornar menos músicas do que o pedido.
 - A classificação de gêneros é do Spotify e pode conter erros; um cover de uma banda mal classificada pode passar pelos filtros.
 - Prévias de áudio não são exibidas, pois o Spotify deixou de fornecê-las.

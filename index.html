@@ -112,6 +112,9 @@
         <div>
           <label for="merge-b" class="block text-sm text-zinc-400 mb-1">Playlist 2</label>
           <select id="merge-b" class="w-full bg-zinc-700 rounded p-3 focus:outline-none focus:ring-2 focus:ring-green-500"></select>
+          <input id="merge-b-link" type="text" placeholder="Ou cole o link da playlist"
+                 class="w-full bg-zinc-700 rounded p-3 mt-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500">
+          <p class="text-xs text-zinc-500 mt-1">Se o link for preenchido, ele vale no lugar da lista. O Spotify só deixa ler playlists suas ou colaborativas.</p>
         </div>
       </div>
 
@@ -946,23 +949,59 @@ function computeMerge(base, cands, loose) {
   return { added, skipped };
 }
 
+const LINK_DENIED_MSG =
+  'O Spotify só permite ler playlists suas ou colaborativas. Para usar a playlist de outra pessoa, abra-a no Spotify, ' +
+  'selecione todas as músicas (Ctrl+A), clique com o botão direito, escolha "Adicionar à playlist" > "Nova playlist" ' +
+  'e use essa cópia aqui.';
+
+// Aceita link (open.spotify.com/playlist/ID?si=...), URI (spotify:playlist:ID) ou o ID puro
+function parsePlaylistId(text) {
+  const t = text.trim();
+  const m = t.match(/playlist[\/:]([A-Za-z0-9]{22})/);
+  if (m) return m[1];
+  return /^[A-Za-z0-9]{22}$/.test(t) ? t : '';
+}
+
 async function generateMerge() {
   if (busy) return;
 
   const idA = $('merge-a').value;
-  const idB = $('merge-b').value;
+  const linkText = $('merge-b-link').value.trim();
+  const linkId = linkText ? parsePlaylistId(linkText) : '';
+  if (linkText && !linkId) {
+    return setStatus('Link inválido. Cole o link completo da playlist (open.spotify.com/playlist/...) ou o ID. Links encurtados (spotify.link) não funcionam.', 'error');
+  }
+  const idB = linkId || $('merge-b').value;
   const dest = document.querySelector('input[name="merge-dest"]:checked')?.value || 'new';
   const loose = $('merge-loose').checked;
   if (!idA || !idB) return setStatus('Selecione as duas playlists.', 'error');
   if (idA === idB) return setStatus('Escolha duas playlists diferentes.', 'error');
 
   const nameA = $('merge-a').selectedOptions[0]?.dataset.name || 'Playlist 1';
-  const nameB = $('merge-b').selectedOptions[0]?.dataset.name || 'Playlist 2';
+  let nameB = (linkId ? '' : $('merge-b').selectedOptions[0]?.dataset.name) || 'Playlist 2';
 
   setBusy(true);
   try {
+    if (linkId) {
+      setStatus('Verificando a playlist do link...');
+      let meta;
+      try { meta = await apiCall(`/playlists/${encodeURIComponent(linkId)}`); }
+      catch (e) {
+        if (e.status === 404) throw new Error('Playlist não encontrada. Confira o link.');
+        if (e.status === 403) throw new Error(LINK_DENIED_MSG);
+        throw e;
+      }
+      nameB = meta?.name || nameB;
+      if (meta?.owner?.id && meta.owner.id !== userId && !meta.collaborative) throw new Error(LINK_DENIED_MSG);
+    }
+
     const listA = await loadPlaylistTracks(idA, 'playlist 1');
-    const listB = await loadPlaylistTracks(idB, 'playlist 2');
+    let listB;
+    try { listB = await loadPlaylistTracks(idB, 'playlist 2'); }
+    catch (e) {
+      if (linkId && e.status === 403) throw new Error(LINK_DENIED_MSG);
+      throw e;
+    }
 
     // dest "b" copia da 1 para a 2; nos demais casos a base é a playlist 1
     const base = dest === 'b' ? listB : listA;
