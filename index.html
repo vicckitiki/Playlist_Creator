@@ -35,12 +35,13 @@
   </div>
 
   <div id="form-container">
-    <div class="flex mb-6 border-b border-zinc-700">
-      <button id="tab-new" class="pb-2 px-4 font-semibold tab-active">Criar nova playlist</button>
-      <button id="tab-inc" class="pb-2 px-4 font-semibold tab-inactive hover:text-white transition">Adicionar a uma existente</button>
+    <div class="flex mb-6 border-b border-zinc-700 overflow-x-auto">
+      <button id="tab-new" class="pb-2 px-4 font-semibold whitespace-nowrap tab-active">Criar nova playlist</button>
+      <button id="tab-inc" class="pb-2 px-4 font-semibold whitespace-nowrap tab-inactive hover:text-white transition">Adicionar a uma existente</button>
+      <button id="tab-merge" class="pb-2 px-4 font-semibold whitespace-nowrap tab-inactive hover:text-white transition">Mesclar playlists</button>
     </div>
 
-    <div class="bg-zinc-800 p-6 rounded-xl space-y-5">
+    <div id="gen-form" class="bg-zinc-800 p-6 rounded-xl space-y-5">
       <div id="new-fields">
         <label for="playlist-name" class="block text-sm text-zinc-400 mb-1">Nome da nova playlist</label>
         <input id="playlist-name" type="text" maxlength="100" placeholder="Ex: Indie rock gigante"
@@ -73,6 +74,46 @@
 
       <button id="btn-preview" class="w-full bg-green-500 hover:bg-green-400 text-black font-bold py-4 rounded-full transition text-lg">
         Buscar músicas e gerar preview
+      </button>
+    </div>
+
+    <div id="merge-form" class="hidden bg-zinc-800 p-6 rounded-xl space-y-5">
+      <p class="text-sm text-zinc-400">
+        Compara duas playlists e adiciona só as músicas que a outra ainda não tem. Versões ao vivo, acústicas,
+        remix, remaster e com participação contam como a mesma música.
+      </p>
+
+      <div class="grid sm:grid-cols-2 gap-4">
+        <div>
+          <label for="merge-a" class="block text-sm text-zinc-400 mb-1">Playlist 1</label>
+          <select id="merge-a" class="w-full bg-zinc-700 rounded p-3 focus:outline-none focus:ring-2 focus:ring-green-500"></select>
+        </div>
+        <div>
+          <label for="merge-b" class="block text-sm text-zinc-400 mb-1">Playlist 2</label>
+          <select id="merge-b" class="w-full bg-zinc-700 rounded p-3 focus:outline-none focus:ring-2 focus:ring-green-500"></select>
+        </div>
+      </div>
+
+      <fieldset class="space-y-2">
+        <legend class="text-sm text-zinc-400 mb-2">Salvar o resultado em</legend>
+        <label class="flex items-center gap-2"><input type="radio" name="merge-dest" value="a" class="accent-green-500"> Playlist 1 (recebe as músicas novas da 2)</label>
+        <label class="flex items-center gap-2"><input type="radio" name="merge-dest" value="b" class="accent-green-500"> Playlist 2 (recebe as músicas novas da 1)</label>
+        <label class="flex items-center gap-2"><input type="radio" name="merge-dest" value="new" class="accent-green-500" checked> Nova playlist (união das duas, sem repetições)</label>
+      </fieldset>
+
+      <div id="merge-name-wrap">
+        <label for="merge-name" class="block text-sm text-zinc-400 mb-1">Nome da nova playlist (opcional)</label>
+        <input id="merge-name" type="text" maxlength="100" placeholder="Se vazio, usa os nomes das duas playlists"
+               class="w-full bg-zinc-700 rounded p-3 focus:outline-none focus:ring-2 focus:ring-green-500">
+      </div>
+
+      <label class="flex items-start gap-2 text-sm text-zinc-300">
+        <input id="merge-loose" type="checkbox" class="mt-1 accent-green-500">
+        <span>Tratar o mesmo título com artistas diferentes como a mesma música. Pega covers, mas pode descartar músicas diferentes com nome igual.</span>
+      </label>
+
+      <button id="btn-merge" class="w-full bg-green-500 hover:bg-green-400 text-black font-bold py-4 rounded-full transition text-lg">
+        Comparar e gerar preview
       </button>
     </div>
   </div>
@@ -417,19 +458,22 @@ async function startApp() {
 
 function switchTab(tab) {
   mode = tab;
-  const isNew = tab === 'new';
-  $('tab-new').className = 'pb-2 px-4 font-semibold ' + (isNew ? 'tab-active' : 'tab-inactive hover:text-white transition');
-  $('tab-inc').className = 'pb-2 px-4 font-semibold ' + (isNew ? 'tab-inactive hover:text-white transition' : 'tab-active');
-  $('new-fields').classList.toggle('hidden', !isNew);
-  $('inc-fields').classList.toggle('hidden', isNew);
+  for (const t of ['new', 'inc', 'merge']) {
+    $('tab-' + t).className = 'pb-2 px-4 font-semibold whitespace-nowrap ' +
+      (t === tab ? 'tab-active' : 'tab-inactive hover:text-white transition');
+  }
+  $('gen-form').classList.toggle('hidden', tab === 'merge');
+  $('merge-form').classList.toggle('hidden', tab !== 'merge');
+  $('new-fields').classList.toggle('hidden', tab !== 'new');
+  $('inc-fields').classList.toggle('hidden', tab !== 'inc');
 }
 
 /* ============================================================
  * PLAYLISTS
  * ============================================================ */
 async function loadPlaylists() {
-  const select = $('playlist-select');
-  select.innerHTML = '';
+  const selects = ['playlist-select', 'merge-a', 'merge-b'].map($);
+  selects.forEach(s => { s.innerHTML = ''; });
   const all = [];
   let url = '/me/playlists?limit=50';
 
@@ -441,13 +485,18 @@ async function loadPlaylists() {
 
   const mine = all.filter(p => p && p.owner?.id === userId);
   if (!mine.length) {
-    select.add(new Option('Nenhuma playlist própria encontrada', ''));
+    selects.forEach(s => s.add(new Option('Nenhuma playlist própria encontrada', '')));
     return;
   }
   for (const p of mine) {
     const total = p.items?.total ?? p.tracks?.total ?? 0;
-    select.add(new Option(`${p.name} (${total} músicas)`, p.id));
+    for (const s of selects) {
+      const opt = new Option(`${p.name} (${total} músicas)`, p.id);
+      opt.dataset.name = p.name;
+      s.add(opt);
+    }
   }
+  if (mine.length > 1) $('merge-b').selectedIndex = 1; // começa com playlists diferentes
 }
 
 async function loadPlaylistUris(playlistId) {
@@ -675,6 +724,177 @@ function startOver() {
 }
 
 /* ============================================================
+ * MESCLAR PLAYLISTS
+ * Duas faixas são "a mesma música" quando o título-base é igual
+ * (sem ao vivo, acústica, remix, remaster, feat., ano etc.) e
+ * têm algum artista em comum. Faixas marcadas como cover/tribute/
+ * karaoke, ou a opção "rigor baixo", comparam só o título.
+ * ============================================================ */
+const VERSION_RE = /\b(live|ao vivo|acoustic|acustic[oa]|unplugged|remaster(ed)?|remix(ed)?|mix|version|versao|edit|demo|cover|tribute|karaoke|feat|featuring|ft|instrumental|sessions?|mono|stereo|deluxe|bonus|radio|single|extended|reprise|studio|anniversary|(19|20)\d\d)\b/;
+const FEAT_START_RE = /^(feat|ft|featuring|with|prod|participacao)\b/;
+const COVER_RE = /\b(cover|tribute|karaoke)\b/;
+
+const stripAccents = s => String(s ?? '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+const isVersionNote = txt => VERSION_RE.test(txt) || FEAT_START_RE.test(txt.trim());
+
+function normTitle(name) {
+  const original = stripAccents(name);
+  let s = original;
+  // (Live), [Remastered 2011], (feat. X) somem; outros parênteses são mantidos
+  s = s.replace(/[\(\[\{]([^\)\]\}]*)[\)\]\}]/g, (m, inner) => (isVersionNote(inner) ? ' ' : ` ${inner} `));
+  // "Título - Live at X", "Título - 2011 Remaster"
+  s = s.replace(/\s[-–—]\s(.*)$/, (m, rest) => (isVersionNote(rest) ? ' ' : m));
+  // "Título feat. X" sem parênteses
+  s = s.replace(/\b(feat|ft|featuring)\b\.?.*$/, ' ');
+  s = s.replace(/&/g, ' and ').replace(/[^\p{L}\p{N}\s]/gu, ' ').replace(/\s+/g, ' ').trim();
+  return s || original.replace(/\s+/g, ' ').trim();
+}
+
+function trackInfo(t) {
+  return {
+    track: t,
+    key: normTitle(t.name),
+    artists: new Set(t.artists.map(a => stripAccents(a).replace(/[^\p{L}\p{N}]/gu, '')).filter(Boolean)),
+    cover: COVER_RE.test(stripAccents(`${t.name} ${t.album}`))
+  };
+}
+
+class TrackIndex {
+  constructor(loose) { this.loose = loose; this.byKey = new Map(); this.byUri = new Map(); }
+  add(t) {
+    const info = trackInfo(t);
+    this.byUri.set(t.uri, t);
+    if (!this.byKey.has(info.key)) this.byKey.set(info.key, []);
+    this.byKey.get(info.key).push(info);
+  }
+  find(t) {
+    const same = this.byUri.get(t.uri);
+    if (same) return same;
+    const info = trackInfo(t);
+    if (!info.key) return null;
+    for (const o of this.byKey.get(info.key) || []) {
+      if (this.loose || info.cover || o.cover || [...info.artists].some(a => o.artists.has(a))) return o.track;
+    }
+    return null;
+  }
+}
+
+async function loadPlaylistTracks(playlistId, label) {
+  const list = [];
+  const seen = new Set();
+  let url = `/playlists/${encodeURIComponent(playlistId)}/items?limit=50`;
+  while (url) {
+    const data = await apiCall(url);
+    for (const entry of data?.items || []) {
+      const item = entry?.item || entry?.track;
+      if (!item?.uri || item.is_local || (item.type && item.type !== 'track') || seen.has(item.uri)) continue;
+      seen.add(item.uri);
+      list.push({
+        uri: item.uri,
+        name: item.name || 'Sem nome',
+        artists: (item.artists || []).map(a => a?.name).filter(Boolean),
+        album: item.album?.name || '',
+        image: item.album?.images?.[item.album.images.length - 1]?.url || ''
+      });
+    }
+    url = data?.next || null;
+    setStatus(`Lendo ${label}... ${list.length} músicas`);
+  }
+  return list;
+}
+
+// Devolve as faixas de `cands` que não existem em `base` (nem repetidas entre si)
+function computeMerge(base, cands, loose) {
+  const baseIdx = new TrackIndex(loose);
+  base.forEach(t => baseIdx.add(t));
+  const acceptedIdx = new TrackIndex(loose);
+  const added = [], skipped = [];
+  for (const t of cands) {
+    const match = baseIdx.find(t) || acceptedIdx.find(t);
+    if (match) skipped.push({ track: t, match });
+    else { added.push(t); acceptedIdx.add(t); }
+  }
+  return { added, skipped };
+}
+
+async function generateMerge() {
+  if (busy) return;
+
+  const idA = $('merge-a').value;
+  const idB = $('merge-b').value;
+  const dest = document.querySelector('input[name="merge-dest"]:checked')?.value || 'new';
+  const loose = $('merge-loose').checked;
+  if (!idA || !idB) return setStatus('Selecione as duas playlists.', 'error');
+  if (idA === idB) return setStatus('Escolha duas playlists diferentes.', 'error');
+
+  const nameA = $('merge-a').selectedOptions[0]?.dataset.name || 'Playlist 1';
+  const nameB = $('merge-b').selectedOptions[0]?.dataset.name || 'Playlist 2';
+
+  setBusy(true);
+  try {
+    const listA = await loadPlaylistTracks(idA, 'playlist 1');
+    const listB = await loadPlaylistTracks(idB, 'playlist 2');
+
+    // dest "b" copia da 1 para a 2; nos demais casos a base é a playlist 1
+    const base = dest === 'b' ? listB : listA;
+    const cands = dest === 'b' ? listA : listB;
+    const { added, skipped } = computeMerge(base, cands, loose);
+
+    const uris = dest === 'new' ? [...base, ...added].map(t => t.uri) : added.map(t => t.uri);
+    if (!uris.length) {
+      return setStatus(dest === 'new'
+        ? 'As duas playlists estão vazias.'
+        : 'Nada a adicionar: todas as músicas já existem na playlist de destino, ou têm uma versão equivalente.');
+    }
+
+    pending = {
+      uris,
+      mode: dest === 'new' ? 'new' : 'inc',
+      playlistId: dest === 'a' ? idA : dest === 'b' ? idB : '',
+      name: ($('merge-name').value.trim() || `${nameA} + ${nameB}`).slice(0, 100),
+      added: 0
+    };
+    renderMergePreview({ nA: listA.length, nB: listB.length, added, skipped, dest, total: uris.length });
+  } catch (e) {
+    setStatus(describeError(e), 'error');
+  } finally {
+    setBusy(false);
+  }
+}
+
+function renderMergePreview({ nA, nB, added, skipped, dest, total }) {
+  $('form-container').classList.add('hidden');
+  $('preview-section').classList.remove('hidden');
+  setStatus('');
+
+  const target = dest === 'a' ? 'na playlist 1' : dest === 'b' ? 'na playlist 2' : 'na nova playlist';
+  $('preview-stats').textContent =
+    `Playlist 1: ${nA} músicas. Playlist 2: ${nB} músicas. ` +
+    `${skipped.length} ignoradas por já existirem. ${added.length} novas. ` +
+    (dest === 'new' ? `A nova playlist terá ${total} músicas.` : `Serão adicionadas ${total} músicas ${target}.`);
+
+  const row = (t, extra) => `
+    <div class="mb-3 flex items-center gap-3">
+      ${t.image ? `<img src="${escapeHtml(t.image)}" alt="" class="w-10 h-10 rounded">` : '<div class="w-10 h-10 bg-zinc-700 rounded"></div>'}
+      <div class="flex-1 min-w-0">
+        <p class="text-sm font-bold truncate">${escapeHtml(t.name)}</p>
+        <p class="text-xs text-zinc-400 truncate">${escapeHtml(t.artists.join(', ') || 'Desconhecido')}</p>
+        ${extra ? `<p class="text-xs text-amber-400 truncate">${extra}</p>` : ''}
+      </div>
+    </div>`;
+  const more = (n, shown) => n > shown ? `<p class="text-center text-xs text-zinc-500 mb-4">... e mais ${n - shown}.</p>` : '';
+
+  const addedHtml = added.slice(0, 30).map(t => row(t)).join('');
+  const skippedHtml = skipped.slice(0, 40).map(({ track, match }) =>
+    row(track, `Equivale a: ${escapeHtml(match.name)} (${escapeHtml(match.artists.join(', '))})`)).join('');
+
+  $('preview-list').innerHTML =
+    `<p class="text-sm text-zinc-300 font-semibold mb-3">Músicas novas (${added.length})</p>${addedHtml || '<p class="text-xs text-zinc-500 mb-4">Nenhuma.</p>'}${more(added.length, 30)}
+     <hr class="border-zinc-700 mb-4">
+     <p class="text-sm text-zinc-300 font-semibold mb-3">Ignoradas por equivalência (${skipped.length})</p>${skippedHtml || '<p class="text-xs text-zinc-500">Nenhuma.</p>'}${more(skipped.length, 40)}`;
+}
+
+/* ============================================================
  * EVENTOS
  * ============================================================ */
 $('btn-login').addEventListener('click', login);
@@ -685,6 +905,12 @@ $('btn-preview').addEventListener('click', generatePreview);
 $('btn-confirm').addEventListener('click', confirmAndSave);
 $('btn-cancel').addEventListener('click', cancelPreview);
 $('btn-again').addEventListener('click', startOver);
+$('tab-merge').addEventListener('click', () => switchTab('merge'));
+$('btn-merge').addEventListener('click', generateMerge);
+document.querySelectorAll('input[name="merge-dest"]').forEach(r => r.addEventListener('change', () => {
+  const dest = document.querySelector('input[name="merge-dest"]:checked')?.value;
+  $('merge-name-wrap').classList.toggle('hidden', dest !== 'new');
+}));
 
 init();
 </script>
