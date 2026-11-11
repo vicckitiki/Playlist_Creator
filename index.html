@@ -984,15 +984,16 @@ async function generateMerge() {
   try {
     if (linkId) {
       setStatus('Verificando a playlist do link...');
-      let meta;
-      try { meta = await apiCall(`/playlists/${encodeURIComponent(linkId)}`); }
-      catch (e) {
+      // Só pega o nome. Quem decide se dá para ler as músicas é o Spotify, na leitura abaixo
+      // (o campo "collaborative" não é confiável para colaboradores convidados).
+      try {
+        const meta = await apiCall(`/playlists/${encodeURIComponent(linkId)}`);
+        nameB = meta?.name || nameB;
+      } catch (e) {
         if (e.status === 404) throw new Error('Playlist não encontrada. Confira o link.');
-        if (e.status === 403) throw new Error(LINK_DENIED_MSG);
-        throw e;
+        if (e.status === 401) throw e;
+        console.warn('Não foi possível ler os dados da playlist do link:', e);
       }
-      nameB = meta?.name || nameB;
-      if (meta?.owner?.id && meta.owner.id !== userId && !meta.collaborative) throw new Error(LINK_DENIED_MSG);
     }
 
     const listA = await loadPlaylistTracks(idA, 'playlist 1');
