@@ -54,9 +54,30 @@
       </div>
 
       <div>
-        <label for="genre-seed" class="block text-sm text-zinc-400 mb-1">Gênero ou artista</label>
+        <label for="search-mode" class="block text-sm text-zinc-400 mb-1">Tipo de busca</label>
+        <select id="search-mode" class="w-full bg-zinc-700 rounded p-3 focus:outline-none focus:ring-2 focus:ring-green-500">
+          <option value="genre">Por gênero</option>
+          <option value="similar">Parecidos com um artista</option>
+          <option value="artist">Só um artista</option>
+        </select>
+      </div>
+
+      <div>
+        <label id="seed-label" for="genre-seed" class="block text-sm text-zinc-400 mb-1">Gênero</label>
         <input id="genre-seed" type="text" value="indie rock"
                class="w-full bg-zinc-700 rounded p-3 focus:outline-none focus:ring-2 focus:ring-green-500">
+        <p id="seed-hint" class="text-xs text-zinc-500 mt-1"></p>
+      </div>
+
+      <div class="space-y-2">
+        <label class="flex items-start gap-2 text-sm text-zinc-300">
+          <input id="opt-nocover" type="checkbox" checked class="mt-1 accent-green-500">
+          <span>Evitar covers, tributos e karaokê</span>
+        </label>
+        <label class="flex items-start gap-2 text-sm text-zinc-300">
+          <input id="opt-nolive" type="checkbox" class="mt-1 accent-green-500">
+          <span>Evitar versões ao vivo, remix, demo e instrumental</span>
+        </label>
       </div>
 
       <div class="grid grid-cols-2 gap-4">
@@ -372,6 +393,10 @@ async function apiCall(endpoint, { method = 'GET', body = null } = {}) {
     }
 
     if (res.status === 429) {
+      const bodyText = await res.clone().text().catch(() => '');
+      if (/QUOTA_EXCEEDED/.test(bodyText)) {
+        throw new ApiError(429, 'A cota de requisições do app no Spotify acabou. Tente novamente mais tarde.', url);
+      }
       const wait = Math.min(Number(res.headers.get('Retry-After')) || 5, 60);
       setStatus(`Limite de requisições do Spotify. Aguardando ${wait}s...`);
       await sleep(wait * 1000);
@@ -499,94 +524,198 @@ async function loadPlaylists() {
   if (mine.length > 1) $('merge-b').selectedIndex = 1; // começa com playlists diferentes
 }
 
-async function loadPlaylistUris(playlistId) {
-  const uris = new Set();
-  let url = `/playlists/${encodeURIComponent(playlistId)}/items?limit=50`;
-  while (url) {
-    const data = await apiCall(url);
-    for (const entry of data?.items || []) {
-      const item = entry?.item || entry?.track;
-      if (item?.uri) uris.add(item.uri);
-    }
-    url = data?.next || null;
-  }
-  return uris;
-}
-
 /* ============================================================
  * BUSCA DE MÚSICAS
  * Usa só /search (poucas chamadas) e varia a consulta por faixas de
  * ano para passar do limite de 1000 resultados por busca.
  * ============================================================ */
-function buildQueries(seed) {
-  const s = seed.replace(/"/g, '');
-  const now = new Date().getFullYear();
-  const bands = [[2020, now], [2015, 2019], [2010, 2014], [2005, 2009], [2000, 2004],
-                 [1990, 1999], [1980, 1989], [1970, 1979], [1960, 1969]];
-  const queries = [`genre:"${s}"`, s];
-  for (const [a, b] of bands) queries.push(`genre:"${s}" year:${a}-${b}`);
-  for (const [a, b] of bands) queries.push(`${s} year:${a}-${b}`);
-  return queries;
+const COVER_BAD_RE = /\b(covers?|tribute|karaoke|made famous|originally performed|in the style of|lullaby|rockabye|music box|salute to)\b/;
+const LIVE_NAME_RE = /[\(\[][^\)\]]*\b(live|ao vivo|remix|demo|acoustic|acustic[oa]|instrumental|unplugged|sessions?)\b|\s[-–—]\s.*\b(live|ao vivo|remix|demo|acoustic|acustic[oa]|instrumental|unplugged|sessions?)\b/;
+const LIVE_ALBUM_RE = /\b(live|ao vivo|unplugged|sessions?|demos?)\b/;
+const flat = s => stripAccents(s).replace(/[^\p{L}\p{N}]/gu, '');
+
+async function searchPage(q, type, offset) {
+  for (let i = 0; i < 2; i++) {
+    try {
+      const data = await apiCall(`/search?q=${encodeURIComponent(q)}&type=${type}&limit=${searchLimit}&offset=${offset}`);
+      return (data?.[type + 's']?.items || []).filter(Boolean);
+    } catch (e) {
+      if (e.status === 400 && searchLimit > 5 && i === 0) { searchLimit = 5; continue; } // tenta de novo com limite menor
+      throw e;
+    }
+  }
+  return [];
 }
 
-async function searchTracks(seed, goal, cap, existing) {
+// O artista precisa estar classificado no gênero (confere o campo "genres" do artista)
+function genreMatches(artist, genre) {
+  if (!Array.isArray(artist.genres)) return true; // sem o campo: confia no filtro do Spotify
+  const g = stripAccents(genre).trim();
+  const words = g.split(/\s+/);
+  return artist.genres.some(x => {
+    const s = stripAccents(x);
+    return s.includes(g) || words.every(w => s.includes(w));
+  });
+}
+
+// Gêneros do artista de referência: prefere os específicos ("indie rock") aos genéricos ("rock")
+function pickGenres(artist) {
+  const all = [...new Set(artist.genres || [])];
+  const specific = all.filter(g => /[\s-]/.test(g));
+  return (specific.length ? specific : all).slice(0, 3);
+}
+
+async function findArtist(name) {
+  const items = await searchPage(name.replace(/"/g, ''), 'artist', 0);
+  const n = flat(name);
+  return items.find(a => flat(a.name) === n) || items[0] || null;
+}
+
+/* Fluxo: acha artistas do gênero -> confere o gênero -> busca as músicas de cada
+ * artista e só aceita faixas em que o artista é realmente ele (descarta covers de
+ * terceiros e artistas de nome parecido). */
+async function searchTracks({ kind, seed, goal, cap, baseTracks, noCover, noLive }) {
+  const ctx = { requests: 0 };
+  const baseIdx = new TrackIndex(false);
+  baseTracks.forEach(t => baseIdx.add(t));
+  const acceptedIdx = new TrackIndex(false);
   const tracks = [];
-  const seen = new Set(existing);
-  const perArtist = {};
-  let requests = 0;
+  const seenArtists = new Set();
+  const usedArtists = new Set();
+  const seenGenres = {};
+  const coverFilter = noCover && !COVER_BAD_RE.test(stripAccents(seed)); // se o termo pede cover, não filtra
   let lastError = null;
+  let ref = null;
+  let genres = [];
 
-  for (const q of buildQueries(seed)) {
-    let offset = 0;
+  const result = () => ({ tracks, lastError, ref, genres, usedArtists: usedArtists.size, seenGenres });
+  const canRun = () => tracks.length < goal && ctx.requests < MAX_SEARCH_REQUESTS;
 
-    while (offset + searchLimit <= 1000 && tracks.length < goal && requests < MAX_SEARCH_REQUESTS) {
-      let data;
-      try {
-        requests++;
-        data = await apiCall(`/search?q=${encodeURIComponent(q)}&type=track&limit=${searchLimit}&offset=${offset}`);
-      } catch (e) {
-        if (e.status === 401 || e.status === 403) throw e;
-        if (e.status === 400 && searchLimit > 5) { searchLimit = 5; continue; } // tenta de novo com limite menor
-        lastError = e;
-        break;
-      }
+  async function collectFromArtist(a, artistCap) {
+    if (coverFilter && COVER_BAD_RE.test(stripAccents(`${a.name} ${(a.genres || []).join(' ')}`))) return;
+    const q = `artist:"${a.name.replace(/"/g, '')}"`;
+    let got = 0, offset = 0, pages = 0;
 
-      const items = (data?.tracks?.items || []).filter(t => t && t.uri && !t.is_local);
-      if (!(data?.tracks?.items || []).length) break;
+    while (got < artistCap && canRun() && pages < 5 && offset + searchLimit <= 1000) {
+      let items;
+      try { ctx.requests++; items = await searchPage(q, 'track', offset); }
+      catch (e) { if (e.status === 401 || e.status === 403) throw e; lastError = e; return; }
+      if (!items.length) return;
 
+      let belonged = false;
       for (const t of items) {
-        if (tracks.length >= goal) break;
-        if (seen.has(t.uri)) continue;
-        const artist = t.artists?.[0];
-        const key = artist?.id || artist?.name || 'desconhecido';
-        if ((perArtist[key] || 0) >= cap) continue;
+        if (got >= artistCap || tracks.length >= goal) break;
+        if (!t.uri || t.is_local || !(t.artists || []).some(x => x.id === a.id)) continue;
+        belonged = true;
 
-        seen.add(t.uri);
-        perArtist[key] = (perArtist[key] || 0) + 1;
-        tracks.push({
+        const albumName = t.album?.name || '';
+        if (coverFilter && COVER_BAD_RE.test(stripAccents(`${t.name} ${albumName}`))) continue;
+        if (noLive && (LIVE_NAME_RE.test(stripAccents(t.name)) || LIVE_ALBUM_RE.test(stripAccents(albumName)))) continue;
+
+        const names = t.artists.map(x => x?.name).filter(Boolean);
+        const obj = {
           uri: t.uri,
           name: t.name || 'Sem nome',
-          artist: artist?.name || 'Desconhecido',
+          artists: names,
+          artist: names[0] || 'Desconhecido',
+          album: albumName,
           image: t.album?.images?.[t.album.images.length - 1]?.url || ''
-        });
+        };
+        if (baseIdx.find(obj) || acceptedIdx.find(obj)) continue; // já existe (mesma música ou versão dela)
+
+        acceptedIdx.add(obj);
+        tracks.push(obj);
+        usedArtists.add(a.id);
+        got++;
       }
 
+      if (!belonged) return; // a relevância caiu: não há mais faixas desse artista
       offset += searchLimit;
-      setStatus(`Buscando... ${tracks.length} / ${goal} músicas encontradas`);
+      pages++;
+      setStatus(`Buscando... ${tracks.length} / ${goal} músicas (${a.name})`);
       await sleep(120);
     }
-
-    if (tracks.length >= goal || requests >= MAX_SEARCH_REQUESTS) break;
   }
-  return { tracks, lastError };
+
+  if (kind === 'genre') {
+    genres = [seed];
+  } else {
+    setStatus(`Procurando o artista "${seed}"...`);
+    ctx.requests++;
+    ref = await findArtist(seed);
+    if (!ref) throw new Error(`Artista "${seed}" não encontrado.`);
+    seenArtists.add(ref.id);
+    await collectFromArtist(ref, kind === 'artist' ? goal : cap);
+    if (kind === 'artist') return result();
+
+    genres = pickGenres(ref);
+    if (!genres.length) throw new Error(`O Spotify não lista gêneros para ${ref.name}, então não dá para achar artistas parecidos.`);
+  }
+
+  // Um gênero por vez, em rodízio, para misturar quando houver mais de um
+  const states = genres.map(name => ({ name, offset: 0, done: false }));
+  while (canRun() && states.some(s => !s.done)) {
+    for (const s of states) {
+      if (s.done || !canRun()) continue;
+
+      let artists;
+      try {
+        ctx.requests++;
+        artists = await searchPage(`genre:"${s.name.replace(/"/g, '')}"`, 'artist', s.offset);
+      } catch (e) {
+        if (e.status === 401 || e.status === 403) throw e;
+        lastError = e; s.done = true; continue;
+      }
+      if (!artists.length) { s.done = true; continue; }
+      s.offset += searchLimit;
+      if (s.offset + searchLimit > 1000) s.done = true;
+
+      for (const a of artists) {
+        if (!canRun()) break;
+        if (!a.id || seenArtists.has(a.id)) continue;
+        seenArtists.add(a.id);
+        (a.genres || []).forEach(g => { seenGenres[g] = (seenGenres[g] || 0) + 1; });
+        if (!genreMatches(a, s.name)) continue;
+        await collectFromArtist(a, cap);
+      }
+      await sleep(120);
+    }
+  }
+  return result();
 }
 
 /* ============================================================
  * PREVIEW
  * ============================================================ */
+function emptyMessage(r, kind, seed) {
+  if (r.lastError) return `Nenhuma música retornada.\n${describeError(r.lastError)}`;
+  if (kind === 'genre') {
+    const top = Object.entries(r.seenGenres).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([g]) => g);
+    return `Nenhum artista classificado como "${seed}" no Spotify.\n` +
+      (top.length ? `Gêneros encontrados na busca: ${top.join(', ')}.` : 'Tente o nome do gênero em inglês, como o Spotify usa.');
+  }
+  return 'Nenhuma música nova encontrada. Tente outro artista ou aumente o máximo por artista.';
+}
+
+function updateSeedUi() {
+  const kind = $('search-mode').value;
+  const ui = {
+    genre: ['Gênero', 'ex: gregorian chant',
+      'Use o nome do gênero como o Spotify, geralmente em inglês. Só entram artistas classificados nesse gênero.'],
+    similar: ['Artista de referência', 'ex: Arctic Monkeys',
+      'Usa os gêneros desse artista para achar outros artistas parecidos e inclui o próprio artista.'],
+    artist: ['Artista', 'ex: Arctic Monkeys',
+      'Só músicas do próprio artista, sem covers de terceiros.']
+  }[kind];
+  $('seed-label').textContent = ui[0];
+  $('genre-seed').placeholder = ui[1];
+  $('seed-hint').textContent = ui[2];
+}
+
 async function generatePreview() {
   if (busy) return;
 
+  const kind = $('search-mode').value;
   const seed = $('genre-seed').value.trim();
   const goal = clamp($('track-limit').value, 1, 2000, 300);
   const cap = clamp($('artist-cap').value, 1, 50, 10);
@@ -600,29 +729,29 @@ async function generatePreview() {
 
   setBusy(true);
   try {
-    let existing = new Set();
-    if (mode === 'inc') {
-      setStatus('Lendo a playlist para evitar duplicatas...');
-      existing = await loadPlaylistUris(playlistId);
-    }
+    const baseTracks = mode === 'inc' ? await loadPlaylistTracks(playlistId, 'a playlist') : [];
 
     setStatus('Buscando músicas...');
-    const { tracks, lastError } = await searchTracks(seed, goal, cap, existing);
-
-    if (!tracks.length) {
-      throw new Error(lastError
-        ? `Nenhuma música retornada.\n${describeError(lastError)}`
-        : 'Nenhuma música nova encontrada. Tente outro termo.');
-    }
+    const r = await searchTracks({
+      kind, seed, goal, cap, baseTracks,
+      noCover: $('opt-nocover').checked,
+      noLive: $('opt-nolive').checked
+    });
+    if (!r.tracks.length) throw new Error(emptyMessage(r, kind, seed));
 
     pending = {
-      uris: tracks.map(t => t.uri),
+      uris: r.tracks.map(t => t.uri),
       mode,
       playlistId,
       name: $('playlist-name').value.trim() || `Playlist ${seed}`,
       added: 0
     };
-    renderPreview(tracks, goal);
+
+    const info = [];
+    if (r.ref) info.push(`Artista de referência: ${r.ref.name}.`);
+    if (kind !== 'artist') info.push(`Gêneros: ${r.genres.join(', ')}.`);
+    info.push(`${r.usedArtists} artistas.`);
+    renderPreview(r.tracks, goal, info.join(' '));
   } catch (e) {
     setStatus(describeError(e), 'error');
   } finally {
@@ -630,13 +759,13 @@ async function generatePreview() {
   }
 }
 
-function renderPreview(tracks, goal) {
+function renderPreview(tracks, goal, extra = '') {
   $('form-container').classList.add('hidden');
   $('preview-section').classList.remove('hidden');
   setStatus('');
 
   const note = tracks.length < goal ? ` (você pediu ${goal}; o Spotify não retornou mais)` : '';
-  $('preview-stats').textContent = `${tracks.length} faixas prontas para salvar${note}.`;
+  $('preview-stats').textContent = `${tracks.length} faixas prontas para salvar${note}.${extra ? ' ' + extra : ''}`;
 
   const counts = {};
   tracks.forEach(t => { counts[t.artist] = (counts[t.artist] || 0) + 1; });
@@ -907,6 +1036,8 @@ $('btn-cancel').addEventListener('click', cancelPreview);
 $('btn-again').addEventListener('click', startOver);
 $('tab-merge').addEventListener('click', () => switchTab('merge'));
 $('btn-merge').addEventListener('click', generateMerge);
+$('search-mode').addEventListener('change', updateSeedUi);
+updateSeedUi();
 document.querySelectorAll('input[name="merge-dest"]').forEach(r => r.addEventListener('change', () => {
   const dest = document.querySelector('input[name="merge-dest"]:checked')?.value;
   $('merge-name-wrap').classList.toggle('hidden', dest !== 'new');
