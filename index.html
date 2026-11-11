@@ -244,7 +244,7 @@ function describeError(e) {
     if (e.status === 403) {
       return `Spotify recusou o acesso (403): ${e.message}\n` +
         'Confira no Developer Dashboard: seu e-mail em "User Management", conta com Premium, ' +
-        'e saia e conecte de novo para renovar as permissões.';
+        'e saia e conecte de novo para renovar as permissões. Se a playlist for de outra pessoa, você precisa ser colaborador dela.';
     }
     if (e.status === 400) return `Requisição inválida (400): ${e.message}`;
     return `Erro do Spotify (${e.status}): ${e.message}`;
@@ -477,8 +477,8 @@ async function startApp() {
   }
 
   try {
-    await loadPlaylists();
-    setStatus('');
+    const note = await loadPlaylists();
+    setStatus(note || '');
   } catch (e) {
     setStatus(`Não foi possível listar suas playlists.\n${describeError(e)}`, 'error');
   }
@@ -511,20 +511,36 @@ async function loadPlaylists() {
     url = data?.next || null;
   }
 
-  const mine = all.filter(p => p && p.owner?.id === userId);
-  if (!mine.length) {
-    selects.forEach(s => s.add(new Option('Nenhuma playlist própria encontrada', '')));
-    return;
-  }
-  for (const p of mine) {
-    const total = p.items?.total ?? p.tracks?.total ?? 0;
+  const valid = all.filter(Boolean);
+  const mine = valid.filter(p => !p.owner?.id || p.owner.id === userId);
+  const others = valid.filter(p => p.owner?.id && p.owner.id !== userId);
+  console.info(`Playlists retornadas: ${valid.length} (suas: ${mine.length}). Usuário: ${userId}`,
+    [...new Set(valid.map(p => p.owner?.id))]);
+
+  const addGroup = (title, list, showOwner) => {
+    if (!list.length) return;
     for (const s of selects) {
-      const opt = new Option(`${p.name} (${total} músicas)`, p.id);
-      opt.dataset.name = p.name;
-      s.add(opt);
+      const group = document.createElement('optgroup');
+      group.label = title;
+      for (const p of list) {
+        const total = p.items?.total ?? p.tracks?.total ?? 0;
+        const who = showOwner ? ` - de ${p.owner?.display_name || p.owner?.id}` : '';
+        const opt = new Option(`${p.name} (${total} músicas)${who}`, p.id);
+        opt.dataset.name = p.name;
+        group.appendChild(opt);
+      }
+      s.appendChild(group);
     }
+  };
+  addGroup('Minhas playlists', mine, false);
+  addGroup('De outras pessoas (colaborativas)', others, true);
+
+  if (!valid.length) {
+    selects.forEach(s => s.add(new Option('Nenhuma playlist encontrada', '')));
+    return 'O Spotify não retornou nenhuma playlist para esta conta.';
   }
-  if (mine.length > 1) $('merge-b').selectedIndex = 1; // começa com playlists diferentes
+  if (valid.length > 1) $('merge-b').selectedIndex = 1; // começa com playlists diferentes
+  return mine.length ? '' : 'Nenhuma playlist foi criada por você. As listadas são de outras pessoas e só funcionam se você for colaborador.';
 }
 
 /* ============================================================
